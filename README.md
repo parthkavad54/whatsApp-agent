@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Supr Ghee Sales OS
 
-# Run and deploy your AI Studio app
+AI-powered Sales Agent and Admin Dashboard for Gir cow Bilona Desi Ghee business managing WhatsApp, Calls, and Orders.
 
-This contains everything you need to run your app locally.
+## WhatsApp Cloud API Webhook
 
-View your app in AI Studio: https://ai.studio/apps/3e3e9865-f02d-46db-9fdf-3ae3bca56759
+This application includes a backend service to handle WhatsApp Cloud API webhooks.
 
-## Run Locally
+### Configuration
 
-**Prerequisites:**  Node.js
+To receive incoming WhatsApp messages, configure the following environment variables in your environment:
 
+- `WHATSAPP_TOKEN`: Your WhatsApp Cloud API access token.
+- `WHATSAPP_VERIFY_TOKEN`: A custom token used for webhook verification.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### API Endpoints
+
+- **GET `/api/whatsapp`**: Used by the WhatsApp Cloud API for webhook URL verification.
+- **POST `/api/whatsapp`**: The endpoint to receive incoming WhatsApp messages and events.
+
+## Deployment
+
+This application is configured to be deployed on Vercel.
+
+1. Push your code to a GitHub repository.
+2. Connect your repository to Vercel.
+3. Configure the environment variables `WHATSAPP_TOKEN` and `WHATSAPP_VERIFY_TOKEN` in the Vercel project dashboard under Settings -> Environment Variables.
+4. Deploy the project.

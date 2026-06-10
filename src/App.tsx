@@ -709,6 +709,13 @@ export default function App() {
     { name: "Pending", value: pendingOrdersCount }
   ];
 
+  const funnelData = [
+    { name: 'Leads', value: data?.db?.conversations.length || 0 },
+    { name: 'Conversations', value: data?.db?.customers.length || 0 },
+    { name: 'Interested', value: Math.floor((data?.db?.customers.length || 0) * 0.6) },
+    { name: 'Ordered', value: totalOrdersCount },
+  ];
+
   const getFilteredOrders = () => {
     return (data?.db?.orders || []).filter((ord) => {
       // 1. Text Search Filter
@@ -1764,7 +1771,7 @@ export default function App() {
               </div>
 
               {/* Dynamic Recharts Visualization Suite */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 
                 {/* 1. Bar Chart: Selling Pack Sizes popularity */}
                 <div className="bg-white p-5 rounded-xl border border-stone-200/80 shadow-sm space-y-4">
@@ -1779,6 +1786,24 @@ export default function App() {
                         <YAxis stroke="#78716c" fontSize={11} />
                         <Tooltip />
                         <Bar dataKey="QuantitySold" fill="#d97706" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* 2. Funnel Chart: Conversion Flow */}
+                <div className="bg-white p-5 rounded-xl border border-stone-200/80 shadow-sm space-y-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Conversion Funnel
+                  </h3>
+                  <div className="h-56 min-h-[224px]">
+                    <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={0}>
+                      <BarChart layout="vertical" data={funnelData} margin={{ left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" />
+                        <XAxis type="number" stroke="#78716c" fontSize={11} />
+                        <YAxis dataKey="name" type="category" stroke="#78716c" fontSize={11} />
+                        <Tooltip />
+                        <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

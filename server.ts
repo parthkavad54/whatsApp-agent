@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import { handleWhatsAppVerification, handleWhatsAppMessage } from "./server/services/whatsapp";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
@@ -10,6 +11,10 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+
+// WhatsApp Webhook
+app.get("/api/whatsapp", handleWhatsAppVerification);
+app.post("/api/whatsapp", handleWhatsAppMessage);
 
 const PORT = 3000;
 const DB_FILE_PATH = path.join(process.cwd(), "db.json");
