@@ -1,0 +1,6 @@
+{
+  "name": "Supr Ghee Sales OS",
+  "description": "AI-powered Sales Agent and Admin Dashboard for Gir cow Bilona Desi Ghee business managing WhatsApp, Calls, and Orders.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
