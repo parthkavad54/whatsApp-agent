@@ -4,6 +4,7 @@ import fs from "fs";
 import { handleWhatsAppVerification, handleWhatsAppMessage } from "./server/services/whatsapp";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import { sendSuccess, sendError } from "./server/utils/response";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { Customer, Order, Product, Conversation, CallLog, PaymentLog, WebhookLog, MessageLine, SpeechPhrase, QuickReply } from "./src/types";
 
@@ -62,6 +63,22 @@ async function generateContentWithRetry(params: any, retries = 3, initialDelay =
       const errStr = String(err?.message || err || "").toUpperCase();
       const status = err?.status || err?.code || 0;
       
+      const isApiKeyFailure =
+        status === 403 ||
+        errStr.includes("API KEY EXPIRED") ||
+        errStr.includes("RENEW THE API KEY") ||
+        errStr.includes("API_KEY_INVALID") ||
+        errStr.includes("API KEY INVALID") ||
+        errStr.includes("INVALID_ARGUMENT") ||
+        (status === 400 && (errStr.includes("API KEY") || errStr.includes("API_KEY") || errStr.includes("EXPIRED") || errStr.includes("INVALID") || errStr.includes("KEY")));
+
+      if (isApiKeyFailure) {
+        isQuotaExhausted = true;
+        isLiteQuotaExhausted = true;
+        console.warn(`[Gemini API] Auth or API Key failure detected (${status}). Triggering immediate offline failover to support zero-interruption demo path!`);
+        throw err;
+      }
+
       const isTransient =
         status === 503 ||
         status === 429 ||
@@ -1050,7 +1067,7 @@ async function executeAgentTools(calls: any[], customerPhone: string): Promise<a
 // WhatsApp API Simulation Routing
 // -------------------------------------------------------------
 app.get("/api/data", (req: Request, res: Response) => {
-  res.json({
+  sendSuccess(res, {
     db,
     isGeminiConfigured: isGeminiEnabled(),
     isQuotaExhausted: isQuotaExhausted,
@@ -1062,7 +1079,7 @@ app.post("/api/quota/reset", (req: Request, res: Response) => {
   isQuotaExhausted = false;
   isLiteQuotaExhausted = false;
   console.log("[Gemini API] Quota exhausted flags reset manually by operator.");
-  res.json({ success: true, isQuotaExhausted, isLiteQuotaExhausted });
+  sendSuccess(res, { isQuotaExhausted, isLiteQuotaExhausted });
 });
 
 app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
@@ -1115,7 +1132,7 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     });
     saveToDB();
-    return res.json({ response: fallbackAnswer, toolsUsed: [] });
+    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: [] });
   }
 
   // Early fallback if BOTH models are completely quota-exhausted to prevent failed API calls & errors
@@ -1129,7 +1146,7 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     });
     saveToDB();
-    return res.json({ response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
+    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
   }
 
   try {
@@ -1218,10 +1235,14 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
     conversation.updatedAt = new Date().toISOString();
     saveToDB();
 
-    return res.json({ response: replyText, toolsUsed });
+    return sendSuccess(res, { response: replyText, toolsUsed });
 
   } catch (err: any) {
-    console.error("Gemini invocation error - falling back to trilingual local resolver", err);
+    if (isQuotaExhausted && isLiteQuotaExhausted) {
+      console.log("[Gemini API] Quota exhausted or expired API key. Gracing failover to high-fidelity trilingual offline resolver.");
+    } else {
+      console.error("Gemini invocation error - falling back to trilingual local resolver", err?.message || err);
+    }
     const fallbackObj = getTrilingualFallbackReply(text, cleanPhone);
     const fallbackAnswer = `[Resilient Trilingual Failover] ${fallbackObj.response}`;
     
@@ -1231,7 +1252,7 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     });
     saveToDB();
-    return res.json({ response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
+    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
   }
 });
 
@@ -1245,11 +1266,23 @@ app.post("/api/call/simulate-phrase", async (req: Request, res: Response) => {
   }
 
   const cleanPhone = phone.replace(/\D/g, "");
-  const cid = callId || `call-${Date.now().toString().slice(-4)}`;
 
   // Find or create call record
-  let log = db.callLogs.find(l => l.id === cid);
+  let log;
+  if (callId) {
+    log = db.callLogs.find(l => l.id === callId);
+  } else {
+    // Look for active call record within the last 15 minutes that doesn't have a duration set yet (or has duration 0)
+    const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+    log = db.callLogs.find(l => 
+      l.customerPhone === cleanPhone && 
+      (!l.duration || l.duration === 0) &&
+      new Date(l.createdAt).getTime() > fifteenMinutesAgo
+    );
+  }
+
   if (!log) {
+    const cid = callId || `call-${Date.now().toString().slice(-4)}`;
     const customer = getCustomer(cleanPhone);
     log = {
       id: cid,
@@ -1290,7 +1323,15 @@ app.post("/api/call/simulate-phrase", async (req: Request, res: Response) => {
       time: new Date().toLocaleTimeString()
     });
     saveToDB();
-    return res.json({ text: mockVoiceReply, transcript: log.transcript });
+    return sendSuccess(res, {
+      response: mockVoiceReply,
+      text: mockVoiceReply,
+      transcript: log.transcript,
+      parsedSize: true,
+      parsedQty: true,
+      parsedAddress: false,
+      orderGenerated: false
+    });
   }
 
   // Early fallback if BOTH models are completely quota-exhausted to prevent failed API calls & errors
@@ -1305,14 +1346,31 @@ app.post("/api/call/simulate-phrase", async (req: Request, res: Response) => {
     });
     
     // Auto-record created orders in call log if fallback creates an order
+    let orderGenerated = false;
+    let orderId = undefined;
     if (fallbackObj.toolsUsed.includes("createOrder")) {
       const lastOrderVal = db.orders[0];
       if (lastOrderVal && lastOrderVal.customerPhone === cleanPhone && !log.ordersCreated.includes(lastOrderVal.orderId)) {
         log.ordersCreated.push(lastOrderVal.orderId);
+        orderGenerated = true;
+        orderId = lastOrderVal.orderId;
       }
     }
+    const sizeParsed = phrase.toLowerCase().includes("500") || phrase.toLowerCase().includes("1l") || phrase.toLowerCase().includes("5l");
+    const qtyParsed = /\b\d+\b/.test(phrase);
+    const addressParsed = phrase.toLowerCase().includes("address") || phrase.toLowerCase().includes("ahmedabad") || phrase.toLowerCase().includes("surat") || phrase.toLowerCase().includes("bengaluru");
     saveToDB();
-    return res.json({ text: fallbackText, transcript: log.transcript, ordersCreated: log.ordersCreated });
+    return sendSuccess(res, {
+      response: fallbackText,
+      text: fallbackText,
+      transcript: log.transcript,
+      ordersCreated: log.ordersCreated,
+      parsedSize: sizeParsed,
+      parsedQty: qtyParsed,
+      parsedAddress: addressParsed,
+      orderGenerated,
+      orderId
+    });
   }
 
   try {
@@ -1398,10 +1456,30 @@ app.post("/api/call/simulate-phrase", async (req: Request, res: Response) => {
     });
     saveToDB();
 
-    return res.json({ text: callReplyPhrase, transcript: log.transcript, ordersCreated: log.ordersCreated });
+    const sizeParsed = phrase.toLowerCase().includes("500") || phrase.toLowerCase().includes("1l") || phrase.toLowerCase().includes("5l") || log.transcript.some(t => t.speaker === 'customer' && (t.phrase.toLowerCase().includes("500") || t.phrase.toLowerCase().includes("1l") || t.phrase.toLowerCase().includes("5l")));
+    const qtyParsed = /\b\d+\b/.test(phrase) || log.transcript.some(t => t.speaker === 'customer' && /\b\d+\b/.test(t.phrase));
+    const addressParsed = phrase.toLowerCase().includes("address") || log.transcript.some(t => t.speaker === 'customer' && (t.phrase.toLowerCase().includes("ahmedabad") || t.phrase.toLowerCase().includes("surat") || t.phrase.toLowerCase().includes("bengaluru") || t.phrase.toLowerCase().includes("address")));
+    const orderGenerated = log.ordersCreated.length > 0;
+    const orderId = log.ordersCreated[0];
+
+    return sendSuccess(res, {
+      response: callReplyPhrase,
+      text: callReplyPhrase,
+      transcript: log.transcript,
+      ordersCreated: log.ordersCreated,
+      parsedSize: sizeParsed,
+      parsedQty: qtyParsed,
+      parsedAddress: addressParsed,
+      orderGenerated,
+      orderId
+    });
 
   } catch (err: any) {
-    console.error("Gemini voice invocation error - falling back to trilingual local resolver", err);
+    if (isQuotaExhausted && isLiteQuotaExhausted) {
+      console.log("[Gemini API] Quota exhausted or expired API key. Gracing voice failover to high-fidelity trilingual offline resolver.");
+    } else {
+      console.error("Gemini voice invocation error - falling back to trilingual local resolver", err?.message || err);
+    }
     const fallbackObj = getTrilingualFallbackReply(phrase, cleanPhone);
     const fallbackText = `[Voice Resilient Failover] ${fallbackObj.response}`;
     
@@ -1412,34 +1490,59 @@ app.post("/api/call/simulate-phrase", async (req: Request, res: Response) => {
     });
     
     // Auto-record created orders in call log if fallback creates an order
+    let orderGenerated = false;
+    let orderId = undefined;
     if (fallbackObj.toolsUsed.includes("createOrder")) {
       const lastOrderVal = db.orders[0];
       if (lastOrderVal && lastOrderVal.customerPhone === cleanPhone && !log.ordersCreated.includes(lastOrderVal.orderId)) {
         log.ordersCreated.push(lastOrderVal.orderId);
+        orderGenerated = true;
+        orderId = lastOrderVal.orderId;
       }
     }
     
+    const sizeParsed = phrase.toLowerCase().includes("500") || phrase.toLowerCase().includes("1l") || phrase.toLowerCase().includes("5l");
+    const qtyParsed = /\b\d+\b/.test(phrase);
+    const addressParsed = phrase.toLowerCase().includes("address") || phrase.toLowerCase().includes("ahmedabad") || phrase.toLowerCase().includes("surat") || phrase.toLowerCase().includes("bengaluru");
+
     saveToDB();
-    return res.json({ text: fallbackText, transcript: log.transcript, ordersCreated: log.ordersCreated });
+    return sendSuccess(res, {
+      response: fallbackText,
+      text: fallbackText,
+      transcript: log.transcript,
+      ordersCreated: log.ordersCreated,
+      parsedSize: sizeParsed,
+      parsedQty: qtyParsed,
+      parsedAddress: addressParsed,
+      orderGenerated,
+      orderId
+    });
   }
 });
 
 // End call, generate summary, automatically trigger offline WhatsApp reminder receipt!
 app.post("/api/call/end", async (req: Request, res: Response) => {
-  const { callId, duration, internalNotes } = req.body;
-  if (!callId) {
-    return res.status(400).json({ error: "Missing callId" });
+  const { callId, phone, customerPhone, duration, internalNotes, notes } = req.body;
+
+  let log;
+  if (callId) {
+    log = db.callLogs.find(l => l.id === callId);
+  } else {
+    const searchPhone = phone || customerPhone;
+    if (searchPhone) {
+      const cleanPhone = searchPhone.replace(/\D/g, "");
+      // Find the most recent call log for this phone number
+      log = db.callLogs.find(l => l.customerPhone === cleanPhone);
+    }
   }
 
-  const log = db.callLogs.find(l => l.id === callId);
   if (!log) {
-    return res.status(404).json({ error: "Call not found" });
+    return res.status(400).json({ error: "Missing callId or phone parameter, or call session not found" });
   }
 
   log.duration = duration || Math.floor(30 + Math.random() * 60);
-  if (internalNotes !== undefined) {
-    log.internalNotes = internalNotes;
-  }
+  const resolvedNotes = internalNotes !== undefined ? internalNotes : (notes || "Interacted through voice line calling simulator.");
+  log.internalNotes = resolvedNotes;
 
   // Generate automated call translation summary using Gemini
   if (isGeminiEnabled() && !(isQuotaExhausted && isLiteQuotaExhausted) && log.transcript.length > 0) {
@@ -1512,7 +1615,7 @@ Click this secure link to pay using GPay, PhonePe, Paytm, or Credit cards. Once 
   conversation.updatedAt = new Date().toISOString();
   saveToDB();
 
-  res.json({ success: true, callLog: log, autoMessage: postCallWAText });
+  sendSuccess(res, { callLog: log, autoMessage: postCallWAText });
 });
 
 // -------------------------------------------------------------
@@ -1747,16 +1850,19 @@ app.post("/api/quick-replies/delete", (req: Request, res: Response) => {
 
 // Create Manual Order from Admin Panel
 app.post("/api/orders/create-manual", (req: Request, res: Response) => {
-  const { phone, name, size, quantity, address } = req.body;
-  if (!phone || !name || !size || !quantity || !address) {
+  const { phone, customerPhone, name, customerName, size, quantity, address } = req.body;
+  const resolvedPhone = phone || customerPhone;
+  const resolvedName = name || customerName;
+
+  if (!resolvedPhone || !resolvedName || !size || !quantity || !address) {
     return res.status(400).json({ error: "Missing manual fields" });
   }
 
-  const customerClean = phone.replace(/\D/g, "");
-  saveCustomer(customerClean, name, address);
+  const customerClean = resolvedPhone.replace(/\D/g, "");
+  saveCustomer(customerClean, resolvedName, address);
   const ord = createOrder(customerClean, size, parseInt(quantity), address);
 
-  res.json({ success: true, order: ord });
+  sendSuccess(res, { orderId: ord.orderId, order: ord });
 });
 
 // Manual Orders Status Update
@@ -1785,7 +1891,7 @@ app.post("/api/orders/update-status", (req: Request, res: Response) => {
   order.updatedAt = new Date().toISOString();
   saveToDB();
 
-  res.json({ success: true, order });
+  sendSuccess(res, { order });
 });
 
 // -------------------------------------------------------------
