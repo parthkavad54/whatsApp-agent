@@ -121,16 +121,16 @@ export default function IntegrationsTab({
       {/* Left side: Razorpay Webhooks and Google Sheets trackers */}
       <div className="lg:col-span-8 space-y-6">
         {/* Razorpay Webhook simulator panel */}
-        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4 transition-colors">
           <div className="flex justify-between items-start">
             <div>
-              <h3 className="font-serif font-bold text-stone-900 text-sm flex items-center gap-2">
+              <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-500" />
                 <span>Razorpay Gateway Webhook Sandbox</span>
               </h3>
-              <p className="text-xs text-stone-500">Inject raw merchant webhook payloads to test ledger state transitions</p>
+              <p className="text-xs text-stone-500 dark:text-zinc-400">Inject raw merchant webhook payloads to test ledger state transitions</p>
             </div>
-            <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded font-mono uppercase">
+            <span className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded font-mono uppercase">
               Secure Auth Link
             </span>
           </div>
@@ -139,16 +139,16 @@ export default function IntegrationsTab({
             <form onSubmit={handleWebhookSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block mb-1">Select Unpaid/Pending Order</label>
+                  <label className="text-[10px] font-bold text-stone-400 dark:text-zinc-500 uppercase tracking-wider block mb-1">Select Unpaid/Pending Order</label>
                   <select
                     value={selectedOrderId}
                     onChange={(e) => setSelectedOrderId(e.target.value)}
                     required
-                    className="w-full bg-stone-50 border border-stone-200 focus:bg-white rounded-lg px-3 py-2 outline-hidden"
+                    className="w-full bg-stone-50 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-stone-800 dark:text-zinc-200 focus:bg-white dark:focus:bg-zinc-800 rounded-lg px-3 py-2 outline-hidden"
                   >
-                    <option value="">-- Choose Pending Order --</option>
+                    <option value="" className="dark:bg-zinc-900">-- Choose Pending Order --</option>
                     {pendingOrders.map(o => (
-                      <option key={o.orderId} value={o.orderId}>
+                      <option key={o.orderId} value={o.orderId} className="dark:bg-zinc-900">
                         Ref: {o.orderId} - {o.customerName} (₹{o.amount})
                       </option>
                     ))}
@@ -156,19 +156,19 @@ export default function IntegrationsTab({
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block mb-1">Set Transaction Outcome</label>
+                  <label className="text-[10px] font-bold text-stone-400 dark:text-zinc-500 uppercase tracking-wider block mb-1">Set Transaction Outcome</label>
                   <select
                     value={paymentStatus}
                     onChange={(e) => setPaymentStatus(e.target.value as any)}
-                    className="w-full bg-stone-50 border border-stone-200 focus:bg-white rounded-lg px-3 py-2 outline-hidden"
+                    className="w-full bg-stone-50 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-stone-800 dark:text-zinc-200 focus:bg-white dark:focus:bg-zinc-800 rounded-lg px-3 py-2 outline-hidden"
                   >
-                    <option value="success">SUCCESS (Mark Paid + Issue Shipment Ledger)</option>
-                    <option value="failed">FAILED (Flag Transaction Issue)</option>
+                    <option value="success" className="dark:bg-zinc-900">SUCCESS (Mark Paid + Issue Shipment Ledger)</option>
+                    <option value="failed" className="dark:bg-zinc-900">FAILED (Flag Transaction Issue)</option>
                   </select>
                 </div>
               </div>
 
-              <div className="bg-stone-50 p-3 rounded-lg border border-stone-200/60 font-mono text-[9.5px] text-stone-500 select-all leading-relaxed whitespace-pre-wrap overflow-x-auto">
+              <div className="bg-stone-50 dark:bg-zinc-950 p-3 rounded-lg border border-stone-200/60 dark:border-zinc-800/80 font-mono text-[9.5px] text-stone-500 dark:text-zinc-400 select-all leading-relaxed whitespace-pre-wrap overflow-x-auto">
 {`{
   "event": "payment.authorized",
   "payload": {
@@ -182,7 +182,7 @@ export default function IntegrationsTab({
               <button
                 type="submit"
                 disabled={injectingWebhook || !selectedOrderId}
-                className="bg-amber-500 hover:bg-amber-600 border border-amber-500 disabled:bg-stone-200 text-stone-950 px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="bg-amber-500 hover:bg-amber-600 disabled:bg-stone-205 dark:disabled:bg-zinc-800 text-stone-950 disabled:text-stone-400 dark:disabled:text-zinc-500 px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border-none"
                 id="btn-trigger-webhook"
               >
                 <Cpu className="w-4 h-4" />
@@ -190,59 +190,59 @@ export default function IntegrationsTab({
               </button>
             </form>
           ) : (
-            <div className="bg-stone-50 p-5 rounded-xl border border-stone-200 text-center text-stone-500 font-serif italic text-xs">
+            <div className="bg-stone-50 dark:bg-zinc-950/30 p-5 rounded-xl border border-stone-200 dark:border-zinc-850 text-center text-stone-500 dark:text-zinc-400 font-serif italic text-xs">
               Every current order in the active queue is successfully paid! No pending ledger items to test.
             </div>
           )}
         </div>
 
         {/* Google sheets synchronizer visualizer */}
-        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4 transition-colors">
           <div>
-            <h3 className="font-serif font-bold text-stone-900 text-sm flex items-center gap-2">
+            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
               <span>Google Sheets Synchronization Portal</span>
             </h3>
-            <p className="text-xs text-stone-500">Manual triggers to synchronize or download local spreadsheets trackers</p>
+            <p className="text-xs text-stone-500 dark:text-zinc-400">Manual triggers to synchronize or download local spreadsheets trackers</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-xs">
-            <div className="p-4 bg-stone-50 rounded-xl border border-stone-200/65 flex flex-col justify-between">
+            <div className="p-4 bg-stone-50 dark:bg-zinc-955/35 rounded-xl border border-stone-200/65 dark:border-zinc-800 flex flex-col justify-between">
               <div>
-                <strong className="block text-stone-800 text-[12px] font-serif">Dispatches Run</strong>
-                <p className="text-[10px] text-stone-500 mt-1 leading-relaxed">Packing lists synchronizations logs matching Courier express</p>
+                <strong className="block text-stone-800 dark:text-zinc-200 text-[12px] font-serif">Dispatches Run</strong>
+                <p className="text-[10px] text-stone-500 dark:text-zinc-400 mt-1 leading-relaxed">Packing lists synchronizations logs matching Courier express</p>
               </div>
               <button 
                 onClick={() => downloadSheetCSV("dispatches")}
-                className="mt-3.5 bg-white border border-stone-300 hover:border-emerald-600 text-stone-700 hover:text-emerald-800 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
+                className="mt-3.5 bg-white dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 hover:border-emerald-600 dark:hover:border-emerald-500 text-stone-700 dark:text-zinc-200 hover:text-emerald-800 dark:hover:text-emerald-400 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download Dispatch CSV</span>
               </button>
             </div>
 
-            <div className="p-4 bg-stone-50 rounded-xl border border-stone-200/65 flex flex-col justify-between">
+            <div className="p-4 bg-stone-50 dark:bg-zinc-955/35 rounded-xl border border-stone-200/65 dark:border-zinc-800 flex flex-col justify-between">
               <div>
-                <strong className="block text-stone-800 text-[12px] font-serif">Accounting Settle</strong>
-                <p className="text-[10px] text-stone-500 mt-1 leading-relaxed">Financial summaries matching banks clearance ledgers</p>
+                <strong className="block text-stone-800 dark:text-zinc-200 text-[12px] font-serif">Accounting Settle</strong>
+                <p className="text-[10px] text-stone-500 dark:text-zinc-400 mt-1 leading-relaxed">Financial summaries matching banks clearance ledgers</p>
               </div>
               <button 
                 onClick={() => downloadSheetCSV("accounting")}
-                className="mt-3.5 bg-white border border-stone-300 hover:border-emerald-600 text-stone-700 hover:text-emerald-800 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
+                className="mt-3.5 bg-white dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 hover:border-emerald-600 dark:hover:border-emerald-500 text-stone-700 dark:text-zinc-200 hover:text-emerald-800 dark:hover:text-emerald-400 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download accounts CSV</span>
               </button>
             </div>
 
-            <div className="p-4 bg-stone-50 rounded-xl border border-stone-200/65 flex flex-col justify-between">
+            <div className="p-4 bg-stone-50 dark:bg-zinc-955/35 rounded-xl border border-stone-200/65 dark:border-zinc-800 flex flex-col justify-between">
               <div>
-                <strong className="block text-stone-800 text-[12px] font-serif">Patrons Directory</strong>
-                <p className="text-[10px] text-stone-500 mt-1 leading-relaxed">Regular organic buyers dialect and address logs sync</p>
+                <strong className="block text-stone-800 dark:text-zinc-200 text-[12px] font-serif">Patrons Directory</strong>
+                <p className="text-[10px] text-stone-500 dark:text-zinc-400 mt-1 leading-relaxed">Regular organic buyers dialect and address logs sync</p>
               </div>
               <button 
                 onClick={() => downloadSheetCSV("patrons")}
-                className="mt-3.5 bg-white border border-stone-300 hover:border-emerald-600 text-stone-700 hover:text-emerald-800 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
+                className="mt-3.5 bg-white dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 hover:border-emerald-600 dark:hover:border-emerald-500 text-stone-700 dark:text-zinc-200 hover:text-emerald-800 dark:hover:text-emerald-400 font-semibold py-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1 transition"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download Patrons CSV</span>
@@ -267,7 +267,7 @@ export default function IntegrationsTab({
           <button
             onClick={handleCronTrigger}
             disabled={runningCron}
-            className="w-full bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-2.5 rounded-xl text-xs transition uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-stone-800"
+            className="w-full bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-2.5 rounded-xl text-xs transition uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-stone-800 border-none"
             id="btn-day25-cron"
           >
             <RotateCcw className={`w-4 h-4 ${runningCron ? "animate-spin" : ""}`} />
@@ -286,10 +286,10 @@ export default function IntegrationsTab({
         </div>
 
         {/* Sync tracking indicators helper */}
-        <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200 flex items-start gap-3">
+        <div className="p-4 bg-stone-50 dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800 flex items-start gap-3 transition-colors">
           <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-stone-600 leading-relaxed">
-            <strong className="block text-stone-900 text-xs">Active Satcom Linkage</strong>
+          <div className="text-[11px] text-stone-600 dark:text-zinc-400 leading-relaxed">
+            <strong className="block text-stone-900 dark:text-zinc-100 text-xs">Active Satcom Linkage</strong>
             <span>Continuous syncing of order tracking data, webhook notifications, and financial ledgers, keeping operations secure.</span>
           </div>
         </div>

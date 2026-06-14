@@ -286,14 +286,14 @@ export default function AIAgentTab({
   return (
     <div className="space-y-6">
       {/* Top Controller Ribbon */}
-      <div className="bg-white p-4 rounded-xl border border-stone-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
+      <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-stone-200 dark:border-zinc-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs transition-colors">
         <div className="flex items-center gap-3">
           <div className="bg-amber-100 p-2 text-amber-900 rounded-lg">
             <Bot className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <h2 className="font-serif font-bold text-stone-900 text-sm">Gemini AI Sales Workspace</h2>
-            <p className="text-[10px] text-stone-500">Traditional Bilona trilingual operational engines configured</p>
+            <h2 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">Gemini AI Sales Workspace</h2>
+            <p className="text-[10px] text-stone-500 dark:text-zinc-400">Traditional Bilona trilingual operational engines configured</p>
           </div>
         </div>
 
@@ -381,8 +381,8 @@ export default function AIAgentTab({
       {subTab === "simulator-whatsapp" && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6" id="whatsapp-sim-dashboard">
           {/* List of customer chat channels */}
-          <div className="bg-white p-4 rounded-2xl border border-stone-200 md:col-span-4 flex flex-col space-y-3">
-            <h3 className="font-serif font-bold text-stone-900 text-xs uppercase tracking-wider">Patron Threads</h3>
+          <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-stone-200 dark:border-zinc-800 md:col-span-4 flex flex-col space-y-3 transition-colors">
+            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-xs uppercase tracking-wider">Patron Threads</h3>
             <div className="space-y-1.5 overflow-y-auto max-h-[350px]">
               {customers.map(c => {
                 const isActive = c.phone === selectedPhone;
@@ -392,12 +392,12 @@ export default function AIAgentTab({
                     onClick={() => setSelectedPhone(c.phone)}
                     className={`p-3 rounded-xl cursor-pointer text-xs transition border flex items-center justify-between ${
                       isActive 
-                        ? "bg-amber-50 border-amber-300 text-amber-900 font-medium" 
-                        : "bg-stone-50/50 hover:bg-stone-50 border-stone-200/50 text-stone-700"
+                        ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-100 font-medium" 
+                        : "bg-stone-50/50 dark:bg-zinc-950/20 hover:bg-stone-50 dark:hover:bg-zinc-800/40 border-stone-200/50 dark:border-zinc-800 text-stone-700 dark:text-zinc-300"
                     }`}
                   >
                     <div>
-                      <strong className="block font-serif text-stone-900">{c.name}</strong>
+                      <strong className="block font-serif text-stone-900 dark:text-zinc-100">{c.name}</strong>
                       <span className="text-[9px] text-stone-400 font-mono">+{c.phone}</span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
@@ -529,17 +529,17 @@ export default function AIAgentTab({
       {subTab === "simulator-call" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="call-sim-panel">
           {/* Quick instructions and call logs */}
-          <div className="bg-white p-5 rounded-2xl border border-stone-200 lg:col-span-4 space-y-4">
+          <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-stone-200 dark:border-zinc-800 lg:col-span-4 space-y-4 transition-colors">
             <div>
-              <h3 className="font-serif font-bold text-stone-900 text-sm">Interactive Dial Simulator</h3>
-              <p className="text-xs text-stone-500 leading-relaxed">
+              <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">Interactive Dial Simulator</h3>
+              <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
                 Call simulation emulates a live telephone line. Initiate a virtual call, type phrases to mimic the customer, and use browser SpeechSynthesis to vocalize the AI’s real responses.
               </p>
             </div>
 
             {/* Simulated telephone panel box mockup */}
-            <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 text-center space-y-3">
-              <span className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Patron Phone Terminal</span>
+            <div className="bg-stone-50 dark:bg-zinc-950/40 p-4 rounded-xl border border-stone-200 dark:border-zinc-800 text-center space-y-3 transition-colors">
+              <span className="text-[10px] uppercase tracking-wider text-stone-400 dark:text-zinc-500 font-bold">Patron Phone Terminal</span>
               <div className="space-y-1">
                 <strong className="block text-stone-800 text-sm font-serif">
                   {customers.find(c => c.phone === selectedPhone)?.name || "Select Customer First"}
@@ -700,10 +700,10 @@ export default function AIAgentTab({
 
       {/* Sub Tab Panel: System Prompt Studio */}
       {subTab === "prompt" && (
-        <form onSubmit={handleUpdatePrompts} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-5" id="form-prompt-studio">
+        <form onSubmit={handleUpdatePrompts} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-5 transition-colors" id="form-prompt-studio">
           <div>
-            <h3 className="font-serif font-bold text-stone-900 text-sm">Traditional Prompting Playbooks</h3>
-            <p className="text-xs text-stone-500">Fine-tune translation patterns, objection protocols, or Vedic core definitions</p>
+            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">System Prompts & Trilingual Dictionary</h3>
+            <p className="text-xs text-stone-500 dark:text-zinc-400">Fine-tune translation patterns, objection protocols, or Vedic core definitions</p>
           </div>
 
           <div className="space-y-4">
@@ -757,8 +757,8 @@ export default function AIAgentTab({
       {subTab === "replies" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="quick-replies-management">
           {/* Form to add quick response */}
-          <div className="bg-white p-5 rounded-2xl border border-stone-200 lg:col-span-5">
-            <h3 className="font-serif font-bold text-stone-900 text-xs uppercase tracking-wider mb-4">Register Quick canned message</h3>
+          <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-stone-200 dark:border-zinc-800 lg:col-span-5 transition-colors">
+            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-xs uppercase tracking-wider mb-4">Register Quick canned message</h3>
             <form onSubmit={handleCreateReply} className="space-y-4">
               <div>
                 <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wide block mb-1">Shortcut Headline *</label>
@@ -806,19 +806,19 @@ export default function AIAgentTab({
           </div>
 
           {/* Quick reply shortcuts listings */}
-          <div className="bg-white p-4 rounded-2xl border border-stone-200 lg:col-span-7 flex flex-col space-y-3">
-            <h3 className="font-serif font-bold text-stone-900 text-xs uppercase tracking-wider">Canned Shortcuts Catalogue</h3>
+          <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-stone-200 dark:border-zinc-800 lg:col-span-7 flex flex-col space-y-3 transition-colors">
+            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-xs uppercase tracking-wider">Canned Shortcuts Catalogue</h3>
             <div className="space-y-3 overflow-y-auto max-h-[350px] text-xs">
               {quickReplies && quickReplies.map(item => (
-                <div key={item.id} className="p-3.5 bg-stone-50 border border-stone-205 rounded-xl flex justify-between items-start gap-3">
+                <div key={item.id} className="p-3.5 bg-stone-50 dark:bg-zinc-950/40 border border-stone-205 dark:border-zinc-800 rounded-xl flex justify-between items-start gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <strong className="font-serif text-stone-900 text-[13px]">{item.title}</strong>
-                      <span className="bg-amber-100 text-amber-800 border border-amber-200 font-mono text-[9px] font-bold px-1.5 rounded">
+                      <strong className="font-serif text-stone-900 dark:text-zinc-100 text-[13px]">{item.title}</strong>
+                      <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-350 border border-amber-200 dark:border-amber-900/30 font-mono text-[9px] font-bold px-1.5 rounded">
                         {item.shortcut}
                       </span>
                     </div>
-                    <p className="text-stone-500 leading-relaxed text-[11px]">{item.text}</p>
+                    <p className="text-stone-500 dark:text-zinc-400 leading-relaxed text-[11px]">{item.text}</p>
                   </div>
                   <button
                     onClick={() => onDeleteQuickReply(item.id)}

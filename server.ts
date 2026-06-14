@@ -345,7 +345,8 @@ let db: LocalDatabase = {
       description: "Traditional Vedic Bilona method ghee prepared slowly in earthen pots over cow dung cake fire. Rich golden grain texture, highly aromatic.",
       benefits: ["Enriched with A2 Beta-Casein", "Boosts core immunity and digestion", "Lubricates joints & nourishing for brain", "Ideal for baby food & pregnancy diets"],
       storageInfo: "Store in a cool, dry place. No refrigeration needed. Keep away from sunlight.",
-      origin: "Gir Satva Farms, Junagadh District, Gujarat, India"
+      origin: "Gir Satva Farms, Junagadh District, Gujarat, India",
+      stock: 45
     },
     {
       id: "prod-1000",
@@ -355,7 +356,8 @@ let db: LocalDatabase = {
       description: "Traditional Vedic Bilona method ghee prepared slowly in earthen pots over cow dung cake fire. Rich golden grain texture, highly aromatic.",
       benefits: ["Enriched with A2 Beta-Casein", "Boosts core immunity and digestion", "Lubricates joints & nourishing for brain", "Ideal for baby food & pregnancy diets"],
       storageInfo: "Store in a cool, dry place. No refrigeration needed. Keep away from sunlight.",
-      origin: "Gir Satva Farms, Junagadh District, Gujarat, India"
+      origin: "Gir Satva Farms, Junagadh District, Gujarat, India",
+      stock: 80
     },
     {
       id: "prod-5000",
@@ -365,7 +367,8 @@ let db: LocalDatabase = {
       description: "Premium value bulk family tin of pure Gir Cow A2 Desi Ghee. Made from grass-fed traditional Gir Cows using Vedic traditional protocol.",
       benefits: ["Enriched with A2 Beta-Casein", "Boosts core immunity and digestion", "Lubricates joints & nourishing for brain", "Best price for daily family consumption"],
       storageInfo: "Store in a cool, dry place. Transfer to a glass jar if preferred.",
-      origin: "Gir Satva Farms, Junagadh District, Gujarat, India"
+      origin: "Gir Satva Farms, Junagadh District, Gujarat, India",
+      stock: 4
     },
     {
       id: "prod-combo",
@@ -375,7 +378,8 @@ let db: LocalDatabase = {
       description: "Specially packed combo of two liters of pure A2 Desi Ghee. Best for gifting health to grandparents and infants.",
       benefits: ["Save Rs. 150 over single packs", "Vedic hand-churned purity guaranteed", "Free premium shipping in safe carton box"],
       storageInfo: "Store in cool dark cupboard.",
-      origin: "Gir Satva Farms, Junagadh District, Gujarat, India"
+      origin: "Gir Satva Farms, Junagadh District, Gujarat, India",
+      stock: 8
     }
   ],
   customers: [
@@ -835,6 +839,12 @@ const createOrder = (phone: string, size: string, quantity: number, address: str
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+
+  // Decrement physical stock for live tracking
+  const matchingProduct = db.products.find(p => p.size === size);
+  if (matchingProduct) {
+    matchingProduct.stock = Math.max(0, matchingProduct.stock - quantity);
+  }
 
   db.orders.unshift(newOrder);
   cust.totalOrders += 1;

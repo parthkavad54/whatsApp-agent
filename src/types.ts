@@ -7,6 +7,7 @@ export interface Product {
   benefits: string[];
   storageInfo: string;
   origin: string;
+  stock: number; // remaining physical stock
 }
 
 export interface Customer {
@@ -28,8 +29,8 @@ export interface Order {
   size: string; // e.g. "1L"
   quantity: number;
   amount: number;
-  paymentStatus: 'Pending' | 'Paid' | 'Failed';
-  shippingStatus: 'Processing' | 'Shipped' | 'Delivered' | 'Returned';
+  paymentStatus: 'Pending' | 'Paid' | 'Failed' | 'Cancelled';
+  shippingStatus: 'Processing' | 'Shipped' | 'Delivered' | 'Returned' | 'Cancelled';
   address: string;
   razorpayPaymentId?: string;
   createdAt: string;

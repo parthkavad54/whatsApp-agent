@@ -1,22 +1,27 @@
 
-import { LayoutDashboard, Users, MessageSquare, TrendingUp, Settings, LogOut, Bot, Plug, Languages, Moon } from "lucide-react";
+import { LayoutDashboard, Users, MessageSquare, TrendingUp, Settings, LogOut, Bot, Plug, Languages, Moon, Sun, ShoppingBag } from "lucide-react";
+import { useLanguage } from "../../context/LanguageContext";
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: any) => void;
   isOpen: boolean;
   toggleSidebar: () => void;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, isOpen, toggleSidebar }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, isOpen, toggleSidebar, theme, toggleTheme }: SidebarProps) {
+  const { language, setLanguage, t } = useLanguage();
+
   const navItems = [
-    { id: "analytics", label: "Overview", icon: LayoutDashboard },
-    { id: "orders", label: "Orders", icon: ShoppingBag },
-    { id: "customers", label: "Customers", icon: Users },
-    { id: "ai-agent", label: "AI Agent", icon: Bot },
-    { id: "analytics-detail", label: "Analytics", icon: TrendingUp },
-    { id: "integrations", label: "Integrations", icon: Plug },
-    { id: "logs", label: "Logs & Activity", icon: MessageSquare },
+    { id: "analytics", label: t("nav.overview"), icon: LayoutDashboard },
+    { id: "orders", label: t("nav.orders"), icon: ShoppingBag },
+    { id: "customers", label: t("nav.customers"), icon: Users },
+    { id: "ai-agent", label: t("nav.ai-agent"), icon: Bot },
+    { id: "analytics-detail", label: t("nav.analytics"), icon: TrendingUp },
+    { id: "integrations", label: t("nav.integrations"), icon: Plug },
+    { id: "logs", label: t("nav.logs"), icon: MessageSquare },
   ];
 
   return (
@@ -29,17 +34,17 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, toggleSidebar
         />
       )}
 
-      <aside className={`w-60 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 flex flex-col h-screen fixed top-0 z-50 transition-transform duration-300 ${isOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 border-r border-zinc-200 dark:border-zinc-800`}>
+      <aside className={`w-60 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 flex flex-col h-screen overflow-y-auto fixed top-0 z-50 transition-transform duration-300 ${isOpen ? "translate-x-0" : "-translate-x-full"} border-r border-zinc-200 dark:border-zinc-800 shadow-xs`}>
         {/* Logo */}
-        <div className="p-6">
+        <div className="p-6 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="bg-amber-500 text-zinc-900 rounded-lg p-2 h-9 w-9 flex items-center justify-center font-bold">A</div>
-            <span className="font-bold text-zinc-900 dark:text-white text-xl">AxionAI</span>
+            <div className="bg-amber-500 text-zinc-900 rounded-lg p-2 h-9 w-9 flex items-center justify-center font-bold">D</div>
+            <span className="font-bold text-zinc-900 dark:text-white text-xl">Desi Ghee</span>
           </div>
         </div>
         
         {/* Nav Items */}
-        <nav className="flex-1 px-3 space-y-1">
+        <nav className="flex-1 px-3 space-y-1 shrink-0">
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -60,27 +65,36 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, toggleSidebar
         </nav>
 
         {/* Bottom Toggles + Profile */}
-        <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+        <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 space-y-2 mt-auto shrink-0">
           <div className="flex items-center justify-between px-2 pb-2">
-			<button className="flex items-center gap-2 text-xs text-zinc-500">
-				<Languages size={16}/> EN / ગુ
-			</button>
-			<button className="flex items-center gap-2 text-xs text-zinc-500">
-				<Moon size={16}/>
-			</button>
+            <button 
+              onClick={() => setLanguage(language === "en" ? "gu" : "en")}
+              className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-amber-600 dark:hover:text-amber-400 transition-colors p-1 rounded-lg"
+              title={language === "en" ? "Switch to Gujarati" : "Switch to English"}
+            >
+              <Languages size={16}/> {language === "en" ? "EN / ગુ" : "ગુ / EN"}
+            </button>
+            <button 
+              onClick={toggleTheme}
+              className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-amber-500 dark:hover:text-amber-400 transition-all active:scale-95"
+              title={theme === "dark" ? "Toggle Light Mode" : "Toggle Dark Mode"}
+            >
+              {theme === "dark" ? (
+                <Sun size={17} className="text-amber-500" />
+              ) : (
+                <Moon size={17} className="text-zinc-500 dark:text-zinc-400" />
+              )}
+            </button>
           </div>
-		  <div className="flex items-center gap-3 px-2">
-			<div className="h-8 w-8 rounded-full bg-zinc-200 flex items-center justify-center">O</div>
-			<div>
-				<div className="text-sm font-medium">Owner Name</div>
-				<div className="text-xs text-zinc-500">Owner role</div>
-			</div>
-		  </div>
+          <div className="flex items-center gap-3 px-2">
+            <div className="h-8 w-8 rounded-full bg-amber-100 text-amber-900 dark:bg-zinc-800 dark:text-zinc-200 flex items-center justify-center font-bold text-xs">D</div>
+            <div>
+              <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t("profile.name")}</div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">{t("profile.role")}</div>
+            </div>
+          </div>
         </div>
       </aside>
     </>
   );
 }
-
-// Added missing import
-import { ShoppingBag } from "lucide-react";

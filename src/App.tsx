@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import AppShell from "./components/layout/AppShell";
 import AnalyticsTab from "./components/AnalyticsTab";
@@ -40,6 +40,24 @@ export default function App() {
     "analytics" | "orders" | "customers" | "ai-agent" | "analytics-detail" | "integrations" | "logs"
   >("analytics");
 
+  // Global search state
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+
+  // Notification states
+  const [notifications, setNotifications] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("app_notifications");
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
+
+  const prevOrdersRef = useRef<Order[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem("app_notifications", JSON.stringify(notifications));
+  }, [notifications]);
+
   // Hydration API fetching from Express backend
   const loadDatabaseState = async (silent = false) => {
     try {
@@ -48,6 +66,96 @@ export default function App() {
       const result = await res.json();
       
       if (result.success && result.data) {
+        const fetchedOrders = result.data.db.orders || [];
+
+        // Check if we already have some loaded orders in ref to compare against
+        if (prevOrdersRef.current && prevOrdersRef.current.length > 0) {
+          const prevOrders = prevOrdersRef.current;
+
+          // 1. New Orders Detection
+          fetchedOrders.forEach((o: any) => {
+            const exists = prevOrders.some((prev) => prev.orderId === o.orderId);
+            if (!exists) {
+              const title = `New Order: #${o.orderId}`;
+              const message = `${o.customerName} ordered ${o.quantity}x ${o.size} traditional ghee jar.`;
+              
+              toast.success(
+                <div className="flex flex-col gap-0.5 pointer-events-auto">
+                  <span className="font-bold text-xs flex items-center gap-1">🔔 New Order Booked!</span>
+                  <span className="text-[11px] leading-snug">{o.customerName} placed order #{o.orderId} of {o.quantity}x {o.size}.</span>
+                </div>,
+                { duration: 6500 }
+              );
+
+              setNotifications(prev => [
+                {
+                  id: `notif-${Date.now()}-${Math.random()}`,
+                  title,
+                  message,
+                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  read: false,
+                  type: 'success',
+                  actiontab: 'orders'
+                },
+                ...prev
+              ]);
+            } else {
+              // 2. Order status update detection
+              const prevOrder = prevOrders.find((prev) => prev.orderId === o.orderId);
+              if (prevOrder) {
+                const payChanged = prevOrder.paymentStatus !== o.paymentStatus;
+                const shipChanged = prevOrder.shippingStatus !== o.shippingStatus;
+
+                if (payChanged || shipChanged) {
+                  let changeMsg = "";
+                  if (payChanged && shipChanged) {
+                    changeMsg = `Payment: "${o.paymentStatus}", Status: "${o.shippingStatus}".`;
+                  } else if (payChanged) {
+                    changeMsg = `Payment is now "${o.paymentStatus}".`;
+                  } else {
+                    changeMsg = `Shipping status: "${o.shippingStatus}".`;
+                  }
+
+                  const title = `Order Status: #${o.orderId}`;
+                  const message = `${o.customerName}'s order updated: ${changeMsg}`;
+
+                  toast.custom(
+                    (t) => (
+                      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-white dark:bg-zinc-800 shadow-lg rounded-xl pointer-events-auto flex ring-1 ring-black/5 dark:ring-white/10 p-4 border-l-4 border-amber-500`}>
+                        <div className="flex-1 w-0">
+                          <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                            📦 Order #${o.orderId} Updated
+                          </p>
+                          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-450">
+                            {o.customerName}'s ghee booking changed. {changeMsg}
+                          </p>
+                        </div>
+                      </div>
+                    ),
+                    { duration: 5500 }
+                  );
+
+                  setNotifications(prev => [
+                    {
+                      id: `notif-${Date.now()}-${Math.random()}`,
+                      title,
+                      message,
+                      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      read: false,
+                      type: 'info',
+                      actiontab: 'orders'
+                    },
+                    ...prev
+                  ]);
+                }
+              }
+            }
+          });
+        }
+
+        // Keep current orders in ref
+        prevOrdersRef.current = fetchedOrders;
+
         setDbData(result.data.db);
         setIsGeminiConfigured(result.data.isGeminiConfigured);
         setIsQuotaExhausted(result.data.isQuotaExhausted || false);
@@ -351,6 +459,8 @@ export default function App() {
             customers={dbData.customers} 
             onCreateManualOrder={handleCreateManualOrder}
             onUpdateOrderStatus={handleUpdateOrderStatus}
+            searchQuery={globalSearchQuery}
+            onSearchQueryChange={setGlobalSearchQuery}
           />
         );
       case "customers":
@@ -359,6 +469,8 @@ export default function App() {
             customers={dbData.customers} 
             orders={dbData.orders} 
             onUpdateCustomerNote={handleUpdateCustomerNote}
+            searchQuery={globalSearchQuery}
+            onSearchQueryChange={setGlobalSearchQuery}
           />
         );
       case "ai-agent":
@@ -398,6 +510,8 @@ export default function App() {
           <LogsTab 
             webhookLogs={dbData.webhookLogs}
             callLogs={dbData.callLogs}
+            searchQuery={globalSearchQuery}
+            onSearchQueryChange={setGlobalSearchQuery}
           />
         );
       default:
@@ -436,7 +550,14 @@ export default function App() {
           </button>
         </div>
       ) : (
-        <AppShell activeTab={activeTab} setActiveTab={setActiveTab}>
+        <AppShell 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab}
+          searchQuery={globalSearchQuery}
+          setSearchQuery={setGlobalSearchQuery}
+          notifications={notifications}
+          setNotifications={setNotifications}
+        >
           {renderActiveTabContent()}
         </AppShell>
       )}

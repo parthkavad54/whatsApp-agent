@@ -12,9 +12,11 @@ import {
   CheckCircle, 
   AlertCircle, 
   Calendar,
-  AlertTriangle
+  AlertTriangle,
+  Printer
 } from "lucide-react";
 import { Order, Product, Customer } from "../types";
+import { useLanguage } from "../context/LanguageContext";
 
 interface OrdersTabProps {
   orders: Order[];
@@ -30,6 +32,8 @@ interface OrdersTabProps {
     address: string;
   }) => Promise<void>;
   onUpdateOrderStatus: (orderId: string, paymentStatus?: string, shippingStatus?: string) => Promise<void>;
+  searchQuery?: string;
+  onSearchQueryChange?: (val: string) => void;
 }
 
 export default function OrdersTab({
@@ -37,13 +41,51 @@ export default function OrdersTab({
   products,
   customers,
   onCreateManualOrder,
-  onUpdateOrderStatus
+  onUpdateOrderStatus,
+  searchQuery: propSearchQuery,
+  onSearchQueryChange
 }: OrdersTabProps) {
+  const { t } = useLanguage();
   // Filters & State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState<"all" | "Paid" | "Pending" | "Failed">("all");
-  const [shippingFilter, setShippingFilter] = useState<"all" | "Processing" | "Shipped" | "Delivered" | "Returned">("all");
+  const [localSearchQuery, setLocalSearchQuery] = useState("");
+  const searchQuery = propSearchQuery !== undefined ? propSearchQuery : localSearchQuery;
+  const setSearchQuery = onSearchQueryChange !== undefined ? onSearchQueryChange : setLocalSearchQuery;
+  const [paymentFilter, setPaymentFilter] = useState<"all" | "Paid" | "Pending" | "Failed" | "Cancelled">("all");
+  const [shippingFilter, setShippingFilter] = useState<"all" | "Processing" | "Shipped" | "Delivered" | "Returned" | "Cancelled">("all");
   const [selectedTimelineOrder, setSelectedTimelineOrder] = useState<Order | null>(null);
+  const [selectedLabelOrder, setSelectedLabelOrder] = useState<Order | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  const handleModifyStatus = async (orderId: string, paymentVal?: string, shippingVal?: string) => {
+    setUpdatingOrderId(orderId);
+    try {
+      await onUpdateOrderStatus(orderId, paymentVal, shippingVal);
+    } catch (err) {
+      console.error("Error updating order status:", err);
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  // Helper with highlight tracking for clean dashboard match highlights
+  const highlightText = (text: string, search: string) => {
+    if (!search.trim()) return <span>{text}</span>;
+    const regex = new RegExp(`(${search.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")})`, "gi");
+    const parts = text.split(regex);
+    return (
+      <span className="inline-block">
+        {parts.map((part, i) => 
+          regex.test(part) ? (
+            <mark key={i} className="bg-amber-100 text-stone-900 font-semibold px-0.5 rounded-sm">
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </span>
+    );
+  };
   
   // Manual adding order form state
   const [isAddingOrder, setIsAddingOrder] = useState(false);
@@ -100,10 +142,19 @@ export default function OrdersTab({
 
   // Filtered orders listing
   const filteredOrders = orders.filter(o => {
+    const searchLower = searchQuery.toLowerCase();
     const matchesSearch = 
-      o.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.customerName.toLowerCase().includes(searchLower) ||
       o.customerPhone.includes(searchQuery) ||
-      o.orderId.toLowerCase().includes(searchQuery.toLowerCase());
+      o.orderId.toLowerCase().includes(searchLower) ||
+      (o.address && o.address.toLowerCase().includes(searchLower)) ||
+      (o.size && o.size.toLowerCase().includes(searchLower)) ||
+      (o.productName && o.productName.toLowerCase().includes(searchLower)) ||
+      (o.paymentStatus && o.paymentStatus.toLowerCase().includes(searchLower)) ||
+      (o.shippingStatus && o.shippingStatus.toLowerCase().includes(searchLower)) ||
+      (o.amount && String(o.amount).includes(searchQuery)) ||
+      (o.quantity && String(o.quantity).includes(searchQuery)) ||
+      (o.createdAt && new Date(o.createdAt).toLocaleDateString().includes(searchLower));
     
     const matchesPayment = paymentFilter === "all" || o.paymentStatus === paymentFilter;
     const matchesShipping = shippingFilter === "all" || o.shippingStatus === shippingFilter;
@@ -232,6 +283,7 @@ export default function OrdersTab({
                     <option value="Pending">Pending</option>
                     <option value="Paid">Paid</option>
                     <option value="Failed">Failed</option>
+                    <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>
                 <div>
@@ -245,6 +297,7 @@ export default function OrdersTab({
                     <option value="Shipped">Shipped</option>
                     <option value="Delivered">Delivered</option>
                     <option value="Returned">Returned</option>
+                    <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>
               </div>
@@ -314,6 +367,264 @@ export default function OrdersTab({
     );
   };
 
+  // Print Shipping Label through a silent hidden iframe to ensure seamless printing inside sandboxed iframes
+  const printViaIframe = (o: Order) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (!doc) return;
+
+    const content = `
+      <html>
+        <head>
+          <title>Shipping Label - ${o.orderId}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              padding: 10px;
+              margin: 0;
+              color: #000;
+              background: #fff;
+            }
+            .label-container {
+              border: 3px solid #000;
+              padding: 15px;
+              max-width: 400px;
+              margin: 0 auto;
+              box-sizing: border-box;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 3px double #000;
+              padding-bottom: 8px;
+              margin-bottom: 12px;
+            }
+            .header h2 {
+              margin: 0;
+              font-family: Georgia, serif;
+              font-size: 20px;
+              letter-spacing: 1px;
+              text-transform: uppercase;
+              font-weight: bold;
+            }
+            .section {
+              border-bottom: 1px solid #000;
+              padding-bottom: 10px;
+              margin-bottom: 10px;
+            }
+            .section-title {
+              font-family: monospace;
+              font-size: 10px;
+              font-weight: bold;
+              text-transform: uppercase;
+              color: #444;
+              margin-bottom: 3px;
+            }
+            .address {
+              font-size: 13px;
+              line-height: 1.35;
+              font-weight: bold;
+            }
+            .row {
+              display: flex;
+              justify-content: space-between;
+            }
+            .barcode-container {
+              text-align: center;
+              margin-top: 15px;
+              padding-top: 10px;
+              border-top: 2px dashed #000;
+            }
+            .barcode-visual {
+              height: 50px;
+              background-image: repeating-linear-gradient(90deg, #000, #000 2px, transparent 2px, transparent 5px);
+              width: 85%;
+              margin: 0 auto;
+            }
+            .order-ref {
+              font-family: monospace;
+              font-size: 11px;
+              font-weight: bold;
+              letter-spacing: 2px;
+              margin-top: 5px;
+            }
+            @media print {
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="label-container">
+            <div class="header">
+              <h2>DESI GHEE</h2>
+              <div style="font-family: monospace; font-size: 9px; margin-top: 2px; letter-spacing: 1px;">PURE VEDIC BILONA A2 GHEE</div>
+            </div>
+            <div class="section">
+              <div class="section-title">SENDER (FROM):</div>
+              <div class="address" style="font-weight: normal; font-size: 11px;">
+                Desi Ghee (Daksha Ahir)<br/>
+                Pure Vedic Dairy Farms, India<br/>
+                Support: Registered Business Line
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-title">SHIP TO (TO):</div>
+              <div class="address">
+                ${o.customerName.toUpperCase()}<br/>
+                Phone: +${o.customerPhone}<br/>
+                Address:<br/>
+                ${o.address}
+              </div>
+            </div>
+            <div class="section">
+              <div class="row">
+                <div>
+                  <div class="section-title">ITEM DETAILS:</div>
+                  <div style="font-size: 12px; font-weight: bold;">A2 Gir Cow Desi Ghee (${o.size})</div>
+                </div>
+                <div style="text-align: right;">
+                  <div class="section-title">QTY:</div>
+                  <div style="font-size: 14px; font-weight: bold;">x${o.quantity}</div>
+                </div>
+              </div>
+            </div>
+            <div class="section" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+              <div class="row" style="font-family: monospace; font-size: 10px;">
+                <div>DATE: ${new Date(o.createdAt).toLocaleDateString()}</div>
+                <div>WT: ${o.size === "1L" ? "1.0 kg" : o.size === "500ml" ? "0.5 kg" : "2.0 kg"}</div>
+              </div>
+            </div>
+            <div class="barcode-container">
+              <div class="barcode-visual"></div>
+              <div class="order-ref">${o.orderId}</div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    doc.open();
+    doc.write(content);
+    doc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+         try {
+           document.body.removeChild(iframe);
+         } catch (e) {
+           console.error("Iframe removal skipped or already finished: ", e);
+         }
+      }, 1000);
+    }, 250);
+  };
+
+  const renderShippingLabelModal = (o: Order) => {
+    return (
+      <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="modal-shipping-label">
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-stone-200 dark:border-zinc-800 flex flex-col max-h-[90vh]">
+          {/* Header */}
+          <div className="bg-stone-950 text-stone-100 px-5 py-4 flex justify-between items-center shrink-0">
+            <div>
+              <h3 className="font-serif font-bold text-amber-100 text-sm flex items-center gap-2">
+                <Printer className="w-5 h-5 text-amber-500" />
+                <span>{t("orders.printLabel")}</span>
+              </h3>
+              <p className="text-[10px] text-stone-400 mt-0.5">Physical dispatch helper</p>
+            </div>
+            <button
+              onClick={() => setSelectedLabelOrder(null)}
+              className="text-stone-400 hover:text-stone-100 p-1.5 rounded-lg hover:bg-stone-800 transition cursor-pointer"
+              id="btn-close-label-modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Modal content: The Thermal Label Preview */}
+          <div className="p-6 bg-stone-100 dark:bg-zinc-950 overflow-y-auto flex-1 flex flex-col items-center justify-center">
+            {/* Visual thermal sticker replica */}
+            <div className="w-full bg-white border-[3px] border-stone-900 p-4 shadow-sm font-mono text-[11px] text-stone-900 rounded-xs select-none max-w-[320px]">
+              <div className="text-center font-bold text-sm border-b-2 border-double border-stone-900 pb-2 mb-3">
+                DESI GHEE (Daksha Ahir)
+                <div className="text-[9px] font-normal tracking-wide mt-0.5 spelling-none">VEDIC BILONA CHURNED</div>
+              </div>
+              
+              <div className="border-b border-stone-900 pb-2 mb-2">
+                <span className="text-[9px] block text-stone-400 font-bold uppercase">SENDER (FROM)</span>
+                <span className="font-semibold block text-[10px]">Desi Ghee (Daksha Ahir)</span>
+                <span className="text-[10px] block">Pure Vedic Dairy Farms, India</span>
+              </div>
+
+              <div className="border-b border-stone-900 pb-2 mb-2">
+                <span className="text-[9px] block text-stone-400 font-bold uppercase">SHIP TO (TO)</span>
+                <span className="font-bold block text-xs underline decoration-stone-900">{o.customerName.toUpperCase()}</span>
+                <span className="font-bold block">Phone: +{o.customerPhone}</span>
+                <span className="block mt-1 font-medium bg-stone-50 p-1 border border-stone-200 rounded-sm leading-snug whitespace-pre-wrap">{o.address}</span>
+              </div>
+
+              <div className="border-b border-stone-900 pb-2 mb-2 flex justify-between">
+                <div>
+                  <span className="text-[9px] block text-stone-400 font-bold uppercase">PRODUCT DETAILS</span>
+                  <span className="font-bold text-[10px]">A2 Gir Cow Ghee ({o.size})</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] block text-stone-400 font-bold uppercase">QTY</span>
+                  <span className="font-bold text-lg">x{o.quantity}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-[9px] text-stone-400 font-bold pb-2">
+                <span>DATE: {new Date(o.createdAt).toLocaleDateString()}</span>
+                <span>WT: {o.size === "1L" ? "1.0 kg" : o.size === "500ml" ? "0.5 kg" : "2.0 kg"}</span>
+              </div>
+
+              {/* Barcode representation */}
+              <div className="border-t-2 border-dashed border-stone-900 pt-3 text-center">
+                <div className="h-10 w-full mb-1 flex items-center justify-center">
+                  <div className="h-full w-[85%] bg-stone-900" style={{
+                    backgroundImage: 'repeating-linear-gradient(90deg, #000, #000 2px, transparent 2px, transparent 6px)',
+                    backgroundSize: '100% 100%'
+                  }}></div>
+                </div>
+                <span className="text-[10px] font-bold tracking-widest">{o.orderId}</span>
+              </div>
+            </div>
+            
+            <p className="text-[10px] text-stone-500 dark:text-zinc-400 text-center mt-3 max-w-[280px]">
+              Ready for high-quality thermal label sticker generation. Align with any label or laser desktop printer.
+            </p>
+          </div>
+
+          {/* Footer buttons */}
+          <div className="px-5 py-3.5 bg-stone-50 dark:bg-zinc-900/60 border-t border-stone-100 dark:border-zinc-800 flex items-center justify-between shrink-0">
+            <button
+              onClick={() => setSelectedLabelOrder(null)}
+              className="px-3 py-1.5 border border-stone-200 dark:border-zinc-700 text-stone-600 dark:text-zinc-300 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 font-medium text-xs transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => printViaIframe(o)}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-1.5 text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition hover:shadow-md cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>{t("orders.printLabelShort")}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Plain Text Invoice Export trigger (replaces jsPDF fallback dependency issues)
   const extractReceiptText = (o: Order) => {
     const textData = `
@@ -352,8 +663,8 @@ Thank you for supporting pure traditional dairy.
     <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-6">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
-          <h2 className="font-serif font-bold text-stone-900 text-lg">Daily Dispatches Ledger</h2>
-          <p className="text-xs text-stone-500">Add, track, and manage all your A2 Bilona Desi Ghee order fulfillments</p>
+          <h2 className="font-serif font-bold text-stone-900 text-lg">{t("orders.title")}</h2>
+          <p className="text-xs text-stone-500">{t("orders.desc")}</p>
         </div>
         <button
           onClick={() => setIsAddingOrder(true)}
@@ -361,52 +672,112 @@ Thank you for supporting pure traditional dairy.
           id="btn-add-manual-order"
         >
           <Plus className="w-4 h-4" />
-          <span>Manual Booking</span>
+          <span>{t("orders.manualBooking")}</span>
         </button>
       </div>
 
       {/* Filter and search parameters */}
-      <div className="flex flex-col md:flex-row gap-3">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Search by patron name, phone, or order reference ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-200 focus:bg-white rounded-xl focus:outline-hidden focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-stone-800"
-            id="search-orders"
-          />
+      <div className="space-y-3">
+        <div className="flex flex-col md:flex-row gap-3">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder={t("orders.search")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full text-xs pl-10 pr-10 py-2.5 bg-stone-50 border border-stone-200 focus:bg-white rounded-xl focus:outline-hidden focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-stone-800 transition"
+              id="search-orders"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 transition"
+                title="Clear Search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-2 text-xs">
+            <div className="relative">
+              <select
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value as any)}
+                className="bg-stone-50 border border-stone-200 hover:border-stone-300 focus:bg-white rounded-xl px-3 py-2.5 text-stone-700 outline-hidden transition cursor-pointer appearance-none pr-8"
+                id="filter-payment"
+              >
+                <option value="all">All Payments</option>
+                <option value="Paid">Status: Paid</option>
+                <option value="Pending">Status: Pending</option>
+                <option value="Failed">Status: Failed</option>
+                <option value="Cancelled">Status: Cancelled</option>
+              </select>
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400">
+                <span className="text-[10px]">▼</span>
+              </div>
+            </div>
+
+            <div className="relative">
+              <select
+                value={shippingFilter}
+                onChange={(e) => setShippingFilter(e.target.value as any)}
+                className="bg-stone-50 border border-stone-200 hover:border-stone-300 focus:bg-white rounded-xl px-3 py-2.5 text-stone-700 outline-hidden transition cursor-pointer appearance-none pr-8"
+                id="filter-shipping"
+              >
+                <option value="all">All Shipping</option>
+                <option value="Processing">Processing</option>
+                <option value="Shipped">In Transit</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Returned">Returned</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400">
+                <span className="text-[10px]">▼</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex gap-2 text-xs">
-          <select
-            value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value as any)}
-            className="bg-stone-50 border border-stone-200 focus:bg-white rounded-xl px-3 py-2 text-stone-700 outline-hidden"
-            id="filter-payment"
-          >
-            <option value="all">All Payments</option>
-            <option value="Paid">Status: Paid</option>
-            <option value="Pending">Status: Pending</option>
-            <option value="Failed">Status: Failed</option>
-          </select>
-
-          <select
-            value={shippingFilter}
-            onChange={(e) => setShippingFilter(e.target.value as any)}
-            className="bg-stone-50 border border-stone-200 focus:bg-white rounded-xl px-3 py-2 text-stone-700 outline-hidden"
-            id="filter-shipping"
-          >
-            <option value="all">All Shipping</option>
-            <option value="Processing">Processing</option>
-            <option value="Shipped">In Transit</option>
-            <option value="Delivered">Delivered</option>
-            <option value="Returned">Returned</option>
-          </select>
-        </div>
+        {/* Dynamic active search filters state & Reset trigger */}
+        {(searchQuery || paymentFilter !== "all" || shippingFilter !== "all") && (
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-3.5 bg-stone-50 border border-stone-200/50 rounded-xl text-[11px] text-stone-600 animate-fadeIn">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span>Found <strong className="text-stone-900">{filteredOrders.length}</strong> {filteredOrders.length === 1 ? "order" : "orders"} matching active criteria:</span>
+              {searchQuery && (
+                <span className="bg-amber-100/70 border border-amber-200/50 text-amber-900 px-2.5 py-0.5 rounded-full flex items-center gap-1 text-[10px] font-medium">
+                  Search: "{searchQuery}"
+                  <button onClick={() => setSearchQuery("")} className="hover:text-amber-950 font-bold ml-0.5 text-xs">×</button>
+                </span>
+              )}
+              {paymentFilter !== "all" && (
+                <span className="bg-emerald-50 border border-emerald-200/50 text-emerald-900 px-2.5 py-0.5 rounded-full flex items-center gap-1 text-[10px] font-medium">
+                  Payment: {paymentFilter}
+                  <button onClick={() => setPaymentFilter("all")} className="hover:text-emerald-950 font-bold ml-0.5 text-xs">×</button>
+                </span>
+              )}
+              {shippingFilter !== "all" && (
+                <span className="bg-indigo-50 border border-indigo-200/50 text-indigo-900 px-2.5 py-0.5 rounded-full flex items-center gap-1 text-[10px] font-medium">
+                  Shipping: {shippingFilter}
+                  <button onClick={() => setShippingFilter("all")} className="hover:text-indigo-950 font-bold ml-0.5 text-xs">×</button>
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setPaymentFilter("all");
+                setShippingFilter("all");
+              }}
+              className="text-amber-600 hover:text-amber-700 hover:underline font-semibold text-xs transition"
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Orders Table view */}
@@ -427,10 +798,16 @@ Thank you for supporting pure traditional dairy.
             {filteredOrders.length > 0 ? (
               filteredOrders.map((o) => (
                 <tr key={o.orderId} className="hover:bg-stone-50/40 transition">
-                  <td className="px-4 py-3.5 font-mono font-medium text-stone-600">{o.orderId}</td>
+                  <td className="px-4 py-3.5 font-mono font-medium text-stone-600">
+                    {highlightText(o.orderId, searchQuery)}
+                  </td>
                   <td className="px-4 py-3.5">
-                    <strong className="text-stone-900 block font-serif">{o.customerName}</strong>
-                    <span className="text-[10px] text-stone-400">+{o.customerPhone}</span>
+                    <strong className="text-stone-900 block font-serif">
+                      {highlightText(o.customerName, searchQuery)}
+                    </strong>
+                    <span className="text-[10px] text-stone-400">
+                      +{highlightText(o.customerPhone, searchQuery)}
+                    </span>
                   </td>
                   <td className="px-4 py-3.5">
                     <div className="font-semibold text-stone-800">{o.size} Traditional Jar</div>
@@ -438,39 +815,101 @@ Thank you for supporting pure traditional dairy.
                   </td>
                   <td className="px-4 py-3.5 font-semibold text-amber-900">₹{o.amount}</td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      o.paymentStatus === "Paid" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
-                      o.paymentStatus === "Pending" ? "bg-amber-50 text-amber-700 border border-amber-100" :
-                      "bg-rose-50 text-rose-700 border border-rose-100"
-                    }`}>
-                      {o.paymentStatus}
-                    </span>
+                    {(() => {
+                      const status = o.paymentStatus;
+                      let bgClass = "bg-stone-50 text-stone-600 border-stone-200";
+                      let dotClass = "bg-stone-400";
+                      if (status === "Paid") {
+                        bgClass = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+                        dotClass = "bg-emerald-500";
+                      } else if (status === "Pending") {
+                        bgClass = "bg-amber-50 text-amber-700 border-amber-200/60";
+                        dotClass = "bg-amber-500";
+                      } else if (status === "Failed" || status === "Cancelled") {
+                        bgClass = "bg-rose-50 text-rose-700 border-rose-200/60";
+                        dotClass = "bg-rose-500";
+                      }
+                      return (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${bgClass}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`}></span>
+                          {status}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                      o.shippingStatus === "Delivered" ? "bg-emerald-50 text-emerald-700" :
-                      o.shippingStatus === "Shipped" ? "bg-indigo-50 text-indigo-700" :
-                      o.shippingStatus === "Returned" ? "bg-stone-100 text-stone-600" :
-                      "bg-amber-50 text-amber-600"
-                    }`}>
-                      {o.shippingStatus}
-                    </span>
+                    {(() => {
+                      const status = o.shippingStatus;
+                      let bgClass = "bg-stone-50 text-stone-600 border-stone-200";
+                      let dotClass = "bg-stone-400";
+                      if (status === "Delivered") {
+                        bgClass = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+                        dotClass = "bg-emerald-500";
+                      } else if (status === "Shipped") {
+                        bgClass = "bg-indigo-50 text-indigo-700 border-indigo-200/60";
+                        dotClass = "bg-indigo-500";
+                      } else if (status === "Processing") {
+                        bgClass = "bg-amber-50 text-amber-800 border-amber-200/60";
+                        dotClass = "bg-amber-500";
+                      } else if (status === "Returned" || status === "Cancelled") {
+                        bgClass = "bg-rose-50 text-rose-700 border-rose-200/60";
+                        dotClass = "bg-rose-500";
+                      }
+                      return (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${bgClass}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`}></span>
+                          {status}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                    {o.shippingStatus !== "Delivered" && o.shippingStatus !== "Cancelled" && o.shippingStatus !== "Returned" && (
+                      <button
+                        onClick={() => handleModifyStatus(o.orderId, "Paid", "Delivered")}
+                        disabled={updatingOrderId !== null}
+                        className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 hover:text-emerald-800 px-2.5 py-1 rounded-lg text-[10px] font-bold transition disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer align-middle"
+                        title={t("orders.markDelivered")}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>{t("orders.markDeliveredShort")}</span>
+                      </button>
+                    )}
+                    {o.shippingStatus !== "Cancelled" && o.shippingStatus !== "Returned" && o.shippingStatus !== "Delivered" && (
+                      <button
+                        onClick={() => handleModifyStatus(o.orderId, "Cancelled", "Cancelled")}
+                        disabled={updatingOrderId !== null}
+                        className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 hover:text-rose-800 px-2.5 py-1 rounded-lg text-[10px] font-bold transition disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer align-middle"
+                        title={t("orders.markCancelled")}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>{t("orders.markCancelledShort")}</span>
+                      </button>
+                    )}
+                    {(o.paymentStatus === "Pending" || o.shippingStatus === "Processing") && (
+                      <button
+                        onClick={() => setSelectedLabelOrder(o)}
+                        className="bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-800/60 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg text-[10px] font-bold transition inline-flex items-center gap-1 cursor-pointer align-middle"
+                        title={t("orders.printLabel")}
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>{t("orders.printLabelShort")}</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => setSelectedTimelineOrder(o)}
-                      className="border border-stone-200 hover:border-amber-400 hover:bg-amber-50 text-stone-600 hover:text-amber-800 px-2.5 py-1 rounded-lg transition"
+                      className="border border-stone-200 hover:border-amber-400 hover:bg-amber-50 text-stone-600 hover:text-amber-800 px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1 align-middle"
                       title="Track Live Shipment Ledger"
                     >
-                      <Truck className="w-3.5 h-3.5 inline mr-1" />
+                      <Truck className="w-3.5 h-3.5" />
                       <span>Track</span>
                     </button>
                     <button
                       onClick={() => extractReceiptText(o)}
-                      className="border border-stone-200 hover:border-stone-800 hover:bg-stone-50 text-stone-500 hover:text-stone-900 p-1 rounded-lg transition"
+                      className="border border-stone-200 hover:border-stone-800 hover:bg-stone-50 text-stone-500 hover:text-stone-900 p-1.5 rounded-lg transition inline-flex items-center align-middle"
                       title="Download Invoice File"
                     >
-                      <Download className="w-3.5 h-3.5 inline" />
+                      <Download className="w-3.5 h-3.5" />
                     </button>
                   </td>
                 </tr>
@@ -489,12 +928,15 @@ Thank you for supporting pure traditional dairy.
       {/* Shipment Tracker overlay */}
       {selectedTimelineOrder && renderShipmentTimeline(selectedTimelineOrder)}
 
+      {/* Shipping Label Print Preview Modal */}
+      {selectedLabelOrder && renderShippingLabelModal(selectedLabelOrder)}
+
       {/* Modal: Add manual order */}
       {isAddingOrder && (
         <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="modal-add-order">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-stone-200">
-            <div className="bg-stone-950 text-stone-100 px-5 py-4 flex justify-between items-center">
-              <h3 className="font-serif font-bold text-amber-100 text-sm">Log Manual Traditional Booking</h3>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-stone-200 flex flex-col max-h-[90vh]">
+            <div className="bg-stone-950 text-stone-100 px-5 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-serif font-bold text-amber-100 text-sm">{t("orders.modalTitle")}</h3>
               <button
                 onClick={() => setIsAddingOrder(false)}
                 className="text-stone-400 hover:text-stone-100 p-1 rounded hover:bg-stone-800 transition"
@@ -502,9 +944,9 @@ Thank you for supporting pure traditional dairy.
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleManualSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleManualSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
               <div>
-                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">Patron Phone Number (10 digits) *</label>
+                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">{t("orders.phoneLabel")}</label>
                 <input
                   type="tel"
                   placeholder="e.g. 9876543210"
@@ -516,7 +958,7 @@ Thank you for supporting pure traditional dairy.
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">Patron Full Name *</label>
+                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">{t("orders.nameLabel")}</label>
                 <input
                   type="text"
                   placeholder="e.g. Arvindbhai Patel"
@@ -529,7 +971,7 @@ Thank you for supporting pure traditional dairy.
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">Jar Size Volume</label>
+                  <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">{t("orders.sizeLabel")}</label>
                   <select
                     value={newSize}
                     onChange={(e) => setNewSize(e.target.value)}
@@ -541,7 +983,7 @@ Thank you for supporting pure traditional dairy.
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">Jar Quantity</label>
+                  <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">{t("orders.qtyLabel")}</label>
                   <input
                     type="number"
                     min={1}
@@ -561,7 +1003,7 @@ Thank you for supporting pure traditional dairy.
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">Delivery Address *</label>
+                <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">{t("orders.addressLabel")}</label>
                 <textarea
                   placeholder="Street, City, Gujarat pincode..."
                   rows={2}
@@ -577,7 +1019,7 @@ Thank you for supporting pure traditional dairy.
                 disabled={isSubmitting}
                 className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-stone-200 text-stone-950 font-bold py-2.5 rounded-xl text-xs transition uppercase mt-2 cursor-pointer"
               >
-                {isSubmitting ? "Syncing with Database..." : "Commit Standard Order"}
+                {isSubmitting ? "Syncing with Database..." : t("orders.saveBtn")}
               </button>
             </form>
           </div>
