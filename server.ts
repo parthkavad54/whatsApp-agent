@@ -18,7 +18,8 @@ app.get("/api/whatsapp", handleWhatsAppVerification);
 app.post("/api/whatsapp", handleWhatsAppMessage);
 
 const PORT = 3000;
-const DB_FILE_PATH = path.join(process.cwd(), "db.json");
+const BUNDLED_DB_PATH = path.join(process.cwd(), "db.json");
+const DB_FILE_PATH = process.env.VERCEL ? "/tmp/db.json" : BUNDLED_DB_PATH;
 
 // -------------------------------------------------------------
 // Lazy Gemini Client Setup
@@ -661,8 +662,16 @@ const defaultQuickReplies: QuickReply[] = [
 ];
 
 // Initial database hydration from file if exists
-if (fs.existsSync(DB_FILE_PATH)) {
-  try {
+let dbLoaded = false;
+try {
+  // If we are on Vercel and /tmp/db.json doesn't exist, seed it from the bundled db.json
+  if (process.env.VERCEL && !fs.existsSync(DB_FILE_PATH) && fs.existsSync(BUNDLED_DB_PATH)) {
+    const bundledContent = fs.readFileSync(BUNDLED_DB_PATH, "utf-8");
+    fs.writeFileSync(DB_FILE_PATH, bundledContent);
+    console.log("[Vercel Startup] Bootstrapping database from bundled db.json to /tmp/db.json");
+  }
+
+  if (fs.existsSync(DB_FILE_PATH)) {
     const rawData = fs.readFileSync(DB_FILE_PATH, "utf-8");
     db = { ...db, ...JSON.parse(rawData) };
     if (!db.quickReplies || db.quickReplies.length === 0) {
@@ -707,16 +716,27 @@ if (fs.existsSync(DB_FILE_PATH)) {
     }
     if (scrubbedCount > 0) {
       console.log(`[Database Startup] Cleaned ${scrubbedCount} legacy raw JSON model error messages from database logs to keep our chat contexts pristine.`);
-      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
+      try {
+        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
+      } catch (writeErr) {
+        console.error("Non-fatal write error while cleaning startup database:", writeErr);
+      }
     }
 
-    console.log("Durable Database loaded from db.json");
-  } catch (err) {
-    console.error("Error reading db.json, falling back to seed data", err);
+    console.log(`Durable Database loaded from ${DB_FILE_PATH}`);
+    dbLoaded = true;
   }
-} else {
-  // Write seed database
-  fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
+} catch (err) {
+  console.error("Error matching or reading db.json", err);
+}
+
+if (!dbLoaded) {
+  try {
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
+    console.log(`Created new seed database at ${DB_FILE_PATH}`);
+  } catch (err) {
+    console.error("Error creating initial seed database", err);
+  }
 }
 
 // Persist helper
@@ -2004,9 +2024,13 @@ async function bootstrap() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Supr Ghee Sales OS Server listening on http://localhost:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Supr Ghee Sales OS Server listening on http://localhost:${PORT}`);
+    });
+  }
 }
 
 bootstrap();
+
+export default app;
