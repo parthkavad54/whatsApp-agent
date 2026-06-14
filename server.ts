@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
-import { handleWhatsAppVerification, handleWhatsAppMessage } from "./server/services/whatsapp";
+import { handleWhatsAppVerification, handleWhatsAppMessage, registerWhatsAppMessageHandler, sendActualWhatsAppMessage } from "./server/services/whatsapp";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { sendSuccess, sendError } from "./server/utils/response";
@@ -1092,15 +1092,35 @@ app.post("/api/quota/reset", (req: Request, res: Response) => {
   sendSuccess(res, { isQuotaExhausted, isLiteQuotaExhausted });
 });
 
-app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
-  const { phone, text, type } = req.body;
-  if (!phone || !text) {
-    return res.status(400).json({ error: "Missing required fields phone or text" });
-  }
-
+// -------------------------------------------------------------
+// WhatsApp Message Processing Engine (Shared for Simulation & Real API)
+// -------------------------------------------------------------
+async function processIncomingWhatsAppMessage(
+  phone: string,
+  customerName: string,
+  text: string,
+  type: string = "text"
+): Promise<{ replyText: string; toolsUsed: string[] }> {
   const cleanPhone = phone.replace(/\D/g, "");
 
-  // Add customer message log
+  // Ensure customer exists in the CRM ledger
+  let customer = db.customers.find(c => c.phone === cleanPhone);
+  if (!customer) {
+    customer = {
+      name: customerName === "WhatsApp Patron" ? `Patron +${cleanPhone}` : customerName,
+      phone: cleanPhone,
+      preferredLanguage: "Gujarati",
+      totalOrders: 0,
+      address: "",
+      tags: ["active", "leads"]
+    };
+    db.customers.push(customer);
+  } else if (customer.name.startsWith("Patron +") && customerName !== "WhatsApp Patron") {
+    // Elevate placeholder to real WhatsApp profile name
+    customer.name = customerName;
+  }
+
+  // Retrieve or initialize conversation log
   let conversation = db.conversations.find(c => c.customerPhone === cleanPhone);
   if (!conversation) {
     conversation = {
@@ -1114,115 +1134,52 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
     db.conversations.push(conversation);
   }
 
-  // Create virtual webhook entry
+  // Log incoming webhook event for auditing
   const hookId = `web-wa-${Date.now().toString().slice(-4)}`;
   db.webhookLogs.unshift({
     id: hookId,
     timestamp: new Date().toISOString(),
     service: "WhatsApp",
     event: type === "audio" ? "voice_note_received" : "message_received",
-    payload: { from: cleanPhone, messageText: text }
+    payload: { from: cleanPhone, messageText: text, customerName: customer.name }
   });
 
+  // Track user message in dialogue history
   conversation.messages.push({
     sender: "customer",
     text,
     timestamp: new Date().toISOString(),
-    type: type || "text"
+    type: type === "audio" ? "audio" : "text"
   });
   conversation.updatedAt = new Date().toISOString();
   saveToDB();
 
-  // If Gemini API is not working, fall back gracefully
-  if (!isGeminiEnabled()) {
-    const fallbackAnswer = `Namaste! [Demo Mode - Gemini API Key Not Set] Received your message: "${text}". Please configure your GEMINI_API_KEY inside the 'Settings > Secrets' panel to activate the advanced trilingual sales agent. (Mock Answer: I can help you purchase pure Gir Cow A2 Bilona Ghee. We have 500ml for Rs 950, 1L for Rs 1800, and 5L for Rs 8500).`;
-    conversation.messages.push({
-      sender: "agent",
-      text: fallbackAnswer,
-      timestamp: new Date().toISOString()
-    });
-    saveToDB();
-    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: [] });
-  }
+  let replyText = "";
+  let toolsUsed: string[] = [];
 
-  // Early fallback if BOTH models are completely quota-exhausted to prevent failed API calls & errors
-  if (isQuotaExhausted && isLiteQuotaExhausted) {
+  // 1. Check if Gemini API is disabled
+  if (!isGeminiEnabled()) {
+    replyText = `Namaste! [Demo Mode - Gemini API Key Not Set] Received your message: "${text}". Please configure your GEMINI_API_KEY inside the 'Settings > Secrets' panel to activate the advanced trilingual sales agent. (Mock Answer: I can help you purchase pure Gir Cow A2 Bilona Ghee. We have 500ml for Rs 950, 1L for Rs 1800, and 5L for Rs 8500).`;
+  } 
+  // 2. Check if Gemini quotas are completely dry
+  else if (isQuotaExhausted && isLiteQuotaExhausted) {
     console.log("[Gemini API] Quota exhausted for both standard and lite models - using high-fidelity trilingual offline fallback directly.");
     const fallbackObj = getTrilingualFallbackReply(text, cleanPhone);
-    const fallbackAnswer = `[Resilient Trilingual Failover] ${fallbackObj.response}`;
-    conversation.messages.push({
-      sender: "agent",
-      text: fallbackAnswer,
-      timestamp: new Date().toISOString()
-    });
-    saveToDB();
-    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
-  }
-
-  try {
-    // Map conversation log history to system format for Gemini
-    // Limit to latest 10 messages to save context tokens safely
-    const recentMessages = conversation.messages.slice(-10);
-    const contents: any[] = recentMessages.map(m => {
-      return {
+    replyText = `[Resilient Trilingual Failover] ${fallbackObj.response}`;
+    toolsUsed = fallbackObj.toolsUsed;
+  } 
+  // 3. Invoke trilingual live Gemini sales representative
+  else {
+    try {
+      // Feed latest 10 messages to conversational context
+      const recentMessages = conversation.messages.slice(-10);
+      const contents: any[] = recentMessages.map(m => ({
         role: m.sender === "customer" ? "user" : "model",
         parts: [{ text: m.text }]
-      };
-    });
+      }));
 
-    console.log("Invoking Gemini for WhatsApp flow...");
-    let response = await generateContentWithRetry({
-      model: getActiveModel(),
-      contents,
-      config: {
-        systemInstruction: db.prompts.whatsappSystem,
-        tools: [{ functionDeclarations: toolDeclarations }],
-        temperature: 0.7
-      }
-    });
-
-    let toolsUsed: string[] = [];
-    let functionCalls = response.functionCalls;
-
-    // Execute tool calling loop
-    const maxLoops = 3;
-    let loops = 0;
-    while (functionCalls && functionCalls.length > 0 && loops < maxLoops) {
-      loops++;
-      console.log(`Gemini called functions logic, loop ${loops}`, functionCalls);
-      for (const call of functionCalls) {
-        toolsUsed.push(call.name);
-      }
-
-      // Execute tool computations
-      const outputs = await executeAgentTools(functionCalls, cleanPhone);
-
-      // Re-feed back into Gemini to produce the final textual statement
-      // Maintain proper list structure format, preserving the exact original candidate parts (with thought signatures)
-      const modelContent = response.candidates?.[0]?.content;
-      if (modelContent) {
-        contents.push(modelContent);
-      } else {
-        contents.push({
-          role: "model",
-          parts: functionCalls.map(f => ({
-            functionCall: { name: f.name, args: f.args }
-          }))
-        });
-      }
-
-      contents.push({
-        role: "user",
-        parts: outputs.map(o => ({
-          functionResponse: {
-            name: o.functionResponse.name,
-            response: o.functionResponse.response,
-            id: o.id
-          }
-        }))
-      });
-
-      response = await generateContentWithRetry({
+      console.log(`[WhatsApp Engine] Invoking Gemini context for +${cleanPhone}...`);
+      let response = await generateContentWithRetry({
         model: getActiveModel(),
         contents,
         config: {
@@ -1232,38 +1189,102 @@ app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
         }
       });
 
-      functionCalls = response.functionCalls;
+      let functionCalls = response.functionCalls;
+
+      // Executing potential function triggers (database queries, ledger checkins)
+      const maxLoops = 3;
+      let loops = 0;
+      while (functionCalls && functionCalls.length > 0 && loops < maxLoops) {
+        loops++;
+        console.log(`[WhatsApp Engine] Agent executing smart operational tools, loop ${loops}`, functionCalls);
+        for (const call of functionCalls) {
+          toolsUsed.push(call.name);
+        }
+
+        const outputs = await executeAgentTools(functionCalls, cleanPhone);
+
+        const modelContent = response.candidates?.[0]?.content;
+        if (modelContent) {
+          contents.push(modelContent);
+        } else {
+          contents.push({
+            role: "model",
+            parts: functionCalls.map(f => ({
+              functionCall: { name: f.name, args: f.args }
+            }))
+          });
+        }
+
+        contents.push({
+          role: "user",
+          parts: outputs.map(o => ({
+            functionResponse: {
+              name: o.functionResponse.name,
+              response: o.functionResponse.response,
+              id: o.id
+            }
+          }))
+        });
+
+        response = await generateContentWithRetry({
+          model: getActiveModel(),
+          contents,
+          config: {
+            systemInstruction: db.prompts.whatsappSystem,
+            tools: [{ functionDeclarations: toolDeclarations }],
+            temperature: 0.7
+          }
+        });
+
+        functionCalls = response.functionCalls;
+      }
+
+      replyText = response.text || "Namaste, mane barobar samajh na padi. Shu tame fari kehsho?";
+
+    } catch (err: any) {
+      if (isQuotaExhausted && isLiteQuotaExhausted) {
+        console.log("[Gemini API] Quota exhausted or expired API key. Gracing failover to high-fidelity trilingual offline resolver.");
+      } else {
+        console.error("[WhatsApp Engine] Gemini invocation error - falling back to trilingual local resolver", err?.message || err);
+      }
+      const fallbackObj = getTrilingualFallbackReply(text, cleanPhone);
+      replyText = `[Resilient Trilingual Failover] ${fallbackObj.response}`;
+      toolsUsed = fallbackObj.toolsUsed;
     }
-
-    const replyText = response.text || "Namaste, mane barobar samajh na padi. Shu tame fari kehsho?";
-
-    conversation.messages.push({
-      sender: "agent",
-      text: replyText,
-      timestamp: new Date().toISOString()
-    });
-    conversation.updatedAt = new Date().toISOString();
-    saveToDB();
-
-    return sendSuccess(res, { response: replyText, toolsUsed });
-
-  } catch (err: any) {
-    if (isQuotaExhausted && isLiteQuotaExhausted) {
-      console.log("[Gemini API] Quota exhausted or expired API key. Gracing failover to high-fidelity trilingual offline resolver.");
-    } else {
-      console.error("Gemini invocation error - falling back to trilingual local resolver", err?.message || err);
-    }
-    const fallbackObj = getTrilingualFallbackReply(text, cleanPhone);
-    const fallbackAnswer = `[Resilient Trilingual Failover] ${fallbackObj.response}`;
-    
-    conversation.messages.push({
-      sender: "agent",
-      text: fallbackAnswer,
-      timestamp: new Date().toISOString()
-    });
-    saveToDB();
-    return sendSuccess(res, { response: fallbackAnswer, toolsUsed: fallbackObj.toolsUsed });
   }
+
+  // Persist final agent reply to localized discussion history
+  conversation.messages.push({
+    sender: "agent",
+    text: replyText,
+    timestamp: new Date().toISOString()
+  });
+  conversation.updatedAt = new Date().toISOString();
+  saveToDB();
+
+  // ATTEMPT LIVE PRODUCTION DELIVERY (using WHATSAPP_TOKEN & WHATSAPP_PHONE_NUMBER_ID if configured)
+  if (process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    console.log(`[WhatsApp Engine] Outbound real API configured. Delivering message to +${cleanPhone}...`);
+    await sendActualWhatsAppMessage(cleanPhone, replyText);
+  }
+
+  return { replyText, toolsUsed };
+}
+
+// Bind real Meta API live incoming WhatsApp messages webhook callback
+registerWhatsAppMessageHandler(async (from, name, text, type) => {
+  console.log(`[WhatsApp Callback Link] Triggering live response sequence for +${from} : "${text}"`);
+  return await processIncomingWhatsAppMessage(from, name, text, type);
+});
+
+app.post("/api/whatsapp/simulate", async (req: Request, res: Response) => {
+  const { phone, text, type } = req.body;
+  if (!phone || !text) {
+    return res.status(400).json({ error: "Missing required fields phone or text" });
+  }
+
+  const result = await processIncomingWhatsAppMessage(phone, "WhatsApp Patron", text, type || "text");
+  return sendSuccess(res, { response: result.replyText, toolsUsed: result.toolsUsed });
 });
 
 // -------------------------------------------------------------
