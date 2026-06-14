@@ -16,8 +16,34 @@ app.use(express.json());
 app.get("/api/whatsapp", handleWhatsAppVerification);
 app.post("/api/whatsapp", handleWhatsAppMessage);
 
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function findBundledDBPath(): string {
+  const possiblePaths = [
+    path.join(process.cwd(), "db.json"),
+    path.join(process.cwd(), "api", "db.json"),
+    path.join(__dirname, "db.json"),
+    path.join(__dirname, "..", "db.json"),
+    "/var/task/db.json",
+    "/var/task/api/db.json"
+  ];
+  for (const p of possiblePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        console.log(`[Database Startup] Discovered bundled db.json template at: ${p}`);
+        return p;
+      }
+    } catch (_) {}
+  }
+  console.warn("[Database Startup] Could not locate static db.json on disk. Using path fallback.");
+  return path.join(process.cwd(), "db.json");
+}
+
 const PORT = 3000;
-const BUNDLED_DB_PATH = path.join(process.cwd(), "db.json");
+const BUNDLED_DB_PATH = findBundledDBPath();
 const DB_FILE_PATH = process.env.VERCEL ? "/tmp/db.json" : BUNDLED_DB_PATH;
 
 // -------------------------------------------------------------
@@ -2025,7 +2051,7 @@ app.get("/api/sheets/download/:sheet", (req: Request, res: Response) => {
 // Vite Middleware for Full Stack
 // -------------------------------------------------------------
 async function bootstrap() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
