@@ -34,6 +34,7 @@ export default function App() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [serverStatus, setServerStatus] = useState<"connecting" | "healthy" | "data_error" | "offline">("connecting");
 
   // App Layout Preferences
   const [activeTab, setActiveTab] = useState<
@@ -61,8 +62,33 @@ export default function App() {
   // Hydration API fetching from Express backend
   const loadDatabaseState = async (silent = false) => {
     try {
-      const res = await fetch("/api/data");
-      if (!res.ok) throw new Error("Traditional ledger API is unreachable");
+      let res;
+      try {
+        res = await fetch("/api/data");
+      } catch (fetchErr: any) {
+        // Fetch failed entirely (network down / no response)
+        setServerStatus("offline");
+        throw new Error("Traditional ledger API is unreachable (Network socket refused or offline)");
+      }
+
+      if (!res.ok) {
+        // If not ok (e.g. 500 error), try to check /api/health
+        try {
+          const healthRes = await fetch("/api/health");
+          if (healthRes.ok) {
+            setServerStatus("data_error");
+            throw new Error(`Data Sync issue detected. Ghee server is active, but ledger DB query threw an internal error (Status: ${res.status})`);
+          } else {
+            setServerStatus("offline");
+            throw new Error(`Traditional ledger API is unreachable (Health ping returned ${healthRes.status})`);
+          }
+        } catch (healthErr) {
+          setServerStatus("offline");
+          throw new Error("Traditional ledger API is unreachable (Server offline or socket broken)");
+        }
+      }
+      
+      setServerStatus("healthy");
       const result = await res.json();
       
       if (result.success && result.data) {
@@ -164,6 +190,19 @@ export default function App() {
       setErrorMsg(null);
     } catch (err: any) {
       console.error("[Data Sync Fail]:", err);
+      // Dual check asynchronously to update serverStatus indicator
+      fetch("/api/health")
+        .then(h => {
+          if (h.ok) {
+            setServerStatus("data_error");
+          } else {
+            setServerStatus("offline");
+          }
+        })
+        .catch(() => {
+          setServerStatus("offline");
+        });
+
       if (!silent) {
         setErrorMsg(err.message || "Failed to sync with local database ledger");
       }
@@ -536,18 +575,142 @@ export default function App() {
           </div>
         </div>
       ) : errorMsg ? (
-        <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center text-center p-6 max-w-md mx-auto space-y-4">
-          <div className="p-3 bg-red-50 text-red-700 rounded-xl border border-red-100">
-            <RefreshCcw className="w-8 h-8 mx-auto animate-spin" />
-            <h1 className="font-serif font-black text-stone-900 text-base mt-2">Local Connection Interrupted</h1>
-            <p className="text-xs text-stone-550 mt-1">{errorMsg}</p>
+        <div className="min-h-screen bg-stone-100 dark:bg-zinc-950 flex flex-col items-center justify-center p-4 sm:p-6 transition-colors" id="verification-hub">
+          <div className="max-w-md w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6">
+            
+            {/* Header Status Visualizer */}
+            <div className="text-center space-y-2">
+              <span className={`inline-flex p-3 rounded-2xl border ${
+                serverStatus === "data_error"
+                  ? "bg-amber-50 text-amber-500 border-amber-100 dark:bg-amber-950/20 dark:border-amber-900/40"
+                  : "bg-red-50 text-red-500 border-red-100 dark:bg-zinc-950 dark:border-red-950"
+              }`}>
+                <RefreshCcw className={`w-6 h-6 ${serverStatus === "offline" ? "" : "animate-spin"}`} />
+              </span>
+              <h2 className="font-serif font-black text-lg text-zinc-900 dark:text-white mt-3">
+                Ledger Sync Interrupted
+              </h2>
+              <p className="text-xs text-zinc-550 dark:text-zinc-400">
+                A connection or serialization error has occurred. Let's inspect the diagnostic telemetry.
+              </p>
+            </div>
+
+            {/* Diagnostic Report Cards Grid */}
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-900/60 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 space-y-3.5">
+              <h3 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+                Live Diagnostic Telemetry
+              </h3>
+              
+              <div className="divide-y divide-zinc-150 dark:divide-zinc-800/50">
+                {/* 1. API Heartbeat Server */}
+                <div className="flex items-center justify-between py-2 text-xs">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    Express API Server Heartbeat
+                  </span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                    serverStatus === "data_error" || serverStatus === "healthy"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/20"
+                      : "bg-rose-50 text-rose-700 border-rose-200/50 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/20 animate-pulse"
+                  }`}>
+                    <span className={`w-1 h-1 rounded-full ${
+                      serverStatus === "data_error" || serverStatus === "healthy" ? "bg-emerald-500" : "bg-rose-500"
+                    }`} />
+                    {serverStatus === "data_error" || serverStatus === "healthy" ? "HEALTHY" : "OFFLINE"}
+                  </span>
+                </div>
+
+                {/* 2. Database Ledger Integrity */}
+                <div className="flex items-center justify-between py-2.5 text-xs">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    Database Ledger Integrity (db.json)
+                  </span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                    serverStatus === "healthy"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/20"
+                      : "bg-rose-50 text-rose-700 border-rose-200/50 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/20 animate-pulse"
+                  }`}>
+                    <span className={`w-1 h-1 rounded-full ${
+                      serverStatus === "healthy" ? "bg-emerald-500" : "bg-rose-500"
+                    }`} />
+                    {serverStatus === "healthy" ? "OK" : "FAILURE (500)"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Error Message Details Callout */}
+            <div className="p-3 bg-red-50/15 dark:bg-red-950/5 rounded-xl border border-red-100/10 dark:border-red-950/10 text-center">
+              <span className="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400 block tracking-wide uppercase">
+                {serverStatus === "data_error" ? "DB_SERIALIZATION_FAIL" : "SERVER_CONNECTION_TIMEOUT"}
+              </span>
+              <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 leading-relaxed">
+                {errorMsg}
+              </p>
+            </div>
+
+            {/* Actionable Trouble Shooting Instructions */}
+            <div className="text-[11px] text-zinc-550 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900/30 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800/30 space-y-2">
+              <p className="font-bold text-zinc-750 dark:text-zinc-300 flex items-center gap-1">
+                💡 Target Resolution Action:
+              </p>
+              <ul className="list-disc list-inside space-y-1 pl-1">
+                {serverStatus === "offline" ? (
+                  <>
+                    <li>Start development backend with <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-zinc-800 dark:text-zinc-200">npm run dev</code></li>
+                    <li>Verify port <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-zinc-850 dark:text-zinc-200">3000</code> is free from address collisions.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Your Express backend is alive, but the database JSON layer has parsing conflicts.</li>
+                    <li>Try clicking "Repair & Seed Ledger" to reconstruct the database core.</li>
+                  </>
+                )}
+              </ul>
+            </div>
+
+            {/* Diagnostic Actions buttons */}
+            <div className="flex flex-col gap-2 pt-1">
+              <button 
+                onClick={() => {
+                  setIsLoading(true);
+                  loadDatabaseState();
+                }} 
+                className="w-full bg-zinc-950 hover:bg-zinc-900 dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-950 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center gap-2"
+                id="btn-retry-diagnostic-sweep"
+              >
+                <RefreshCcw className="w-3 h-3 animate-spin" />
+                Retry Diagnostic Sweep
+              </button>
+              
+              {serverStatus === "data_error" && (
+                <button 
+                  onClick={async () => {
+                    if (confirm("Would you like to trigger a forced DB repair and reset system variables?")) {
+                      try {
+                        setIsLoading(true);
+                        const r = await fetch("/api/quota/reset", { method: "POST" });
+                        if (r.ok) {
+                          toast.success("Database seed repaired. Re-establishing link...");
+                          loadDatabaseState();
+                        } else {
+                          toast.error("Repair hook rejected by server.");
+                          setIsLoading(false);
+                        }
+                      } catch (err) {
+                        toast.error("Network issue calling repair hook.");
+                        setIsLoading(false);
+                      }
+                    }
+                  }}
+                  className="w-full bg-amber-500 hover:bg-amber-600 dark:bg-amber-600/90 dark:hover:bg-amber-600 text-zinc-950 dark:text-white font-bold py-2 px-4 rounded-xl text-xs transition-colors cursor-pointer"
+                  id="btn-repair-database-seeds"
+                >
+                  Force Repair & Reseed Ledger
+                </button>
+              )}
+            </div>
+
           </div>
-          <button 
-            onClick={() => loadDatabaseState()} 
-            className="bg-stone-900 text-white font-semibold py-2 px-5 rounded-lg text-xs"
-          >
-            Retry Database Link
-          </button>
         </div>
       ) : (
         <AppShell 
@@ -557,6 +720,7 @@ export default function App() {
           setSearchQuery={setGlobalSearchQuery}
           notifications={notifications}
           setNotifications={setNotifications}
+          serverStatus={serverStatus}
         >
           {renderActiveTabContent()}
         </AppShell>

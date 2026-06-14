@@ -2,7 +2,6 @@ import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { handleWhatsAppVerification, handleWhatsAppMessage, registerWhatsAppMessageHandler, sendActualWhatsAppMessage } from "./server/services/whatsapp";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { sendSuccess, sendError } from "./server/utils/response";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
@@ -1096,13 +1095,30 @@ async function executeAgentTools(calls: any[], customerPhone: string): Promise<a
 // -------------------------------------------------------------
 // WhatsApp API Simulation Routing
 // -------------------------------------------------------------
-app.get("/api/data", (req: Request, res: Response) => {
+app.get("/api/health", (req: Request, res: Response) => {
   sendSuccess(res, {
-    db,
-    isGeminiConfigured: isGeminiEnabled(),
-    isQuotaExhausted: isQuotaExhausted,
-    isLiteQuotaExhausted: isLiteQuotaExhausted
-  });
+    status: "ok",
+    timestamp: Date.now(),
+    env: process.env.VERCEL ? "vercel-serverless" : "container",
+    dbLoaded: !!db
+  }, "Server heartbeat online");
+});
+
+app.get("/api/data", (req: Request, res: Response) => {
+  try {
+    if (!db) {
+      return sendError(res, "Database ledger is not initialized", "DB_NOT_INITIALIZED", 500);
+    }
+    sendSuccess(res, {
+      db,
+      isGeminiConfigured: isGeminiEnabled(),
+      isQuotaExhausted: isQuotaExhausted,
+      isLiteQuotaExhausted: isLiteQuotaExhausted
+    });
+  } catch (err: any) {
+    console.error("[CRITICAL DB RUNTIME ERROR]:", err);
+    sendError(res, err?.message || "Failed to stringify database payload", "SERIALIZATION_FAILURE", 500);
+  }
 });
 
 app.post("/api/quota/reset", (req: Request, res: Response) => {
@@ -2010,6 +2026,7 @@ app.get("/api/sheets/download/:sheet", (req: Request, res: Response) => {
 // -------------------------------------------------------------
 async function bootstrap() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

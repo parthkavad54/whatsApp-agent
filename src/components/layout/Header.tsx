@@ -12,6 +12,7 @@ interface HeaderProps {
   setActiveTab?: (tab: string) => void;
   theme?: "light" | "dark";
   toggleTheme?: () => void;
+  serverStatus?: "connecting" | "healthy" | "data_error" | "offline";
 }
 
 export default function Header({ 
@@ -23,7 +24,8 @@ export default function Header({
   setNotifications,
   setActiveTab,
   theme,
-  toggleTheme
+  toggleTheme,
+  serverStatus = "healthy"
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -77,8 +79,39 @@ export default function Header({
         >
           <Menu size={19} />
         </button>
-        <h1 className="text-sm md:text-lg font-bold text-zinc-900 dark:text-white truncate font-serif tracking-tight pr-1">
-          {title}
+        <h1 className="text-sm md:text-lg font-bold text-zinc-900 dark:text-white truncate font-serif tracking-tight pr-1 flex items-center gap-2">
+          <span>{title}</span>
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium font-sans border transition-all ${
+            serverStatus === "healthy"
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/20"
+              : serverStatus === "data_error"
+              ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/20 animate-pulse"
+              : serverStatus === "connecting"
+              ? "bg-zinc-50 text-zinc-500 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:border-zinc-800"
+              : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/20 animate-pulse"
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              serverStatus === "healthy"
+                ? "bg-emerald-500"
+                : serverStatus === "data_error"
+                ? "bg-amber-500"
+                : serverStatus === "connecting"
+                ? "bg-zinc-400 animate-ping"
+                : "bg-rose-500"
+            }`} />
+            <span className="hidden sm:inline">
+              {serverStatus === "healthy" && "API Online"}
+              {serverStatus === "data_error" && "Ledger Sync Issue"}
+              {serverStatus === "connecting" && "Syncing..."}
+              {serverStatus === "offline" && "Server Offline"}
+            </span>
+            <span className="sm:hidden text-[8px]">
+              {serverStatus === "healthy" && "Online"}
+              {serverStatus === "data_error" && "DB Err"}
+              {serverStatus === "connecting" && "..."}
+              {serverStatus === "offline" && "Offline"}
+            </span>
+          </span>
         </h1>
       </div>
 

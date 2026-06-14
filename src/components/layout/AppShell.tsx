@@ -11,6 +11,7 @@ interface AppShellProps {
   setSearchQuery?: (query: string) => void;
   notifications?: any[];
   setNotifications?: React.Dispatch<React.SetStateAction<any[]>>;
+  serverStatus?: "connecting" | "healthy" | "data_error" | "offline";
 }
 
 export default function AppShell({ 
@@ -20,7 +21,8 @@ export default function AppShell({
   searchQuery,
   setSearchQuery,
   notifications,
-  setNotifications
+  setNotifications,
+  serverStatus = "healthy"
 }: AppShellProps) {
   const { t } = useLanguage();
   // Theme state synced with local storage and system preferences
@@ -122,6 +124,7 @@ export default function AppShell({
           setActiveTab={setActiveTab}
           theme={theme}
           toggleTheme={toggleTheme}
+          serverStatus={serverStatus}
         />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
             {children}
