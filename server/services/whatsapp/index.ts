@@ -141,7 +141,11 @@ export function sendActualWhatsAppMessage(to: string, text: string): Promise<boo
           console.log(`[WhatsApp Service] Successfully delivered message to +${cleanTo}`);
           resolve(true);
         } else {
-          console.error(`[WhatsApp Service] Failed delivering message. Status: ${res.statusCode}. Body: ${responseBody}`);
+          let diagnostic = "";
+          if (responseBody.includes("131030") || responseBody.includes("Recipient phone number not in allowed list")) {
+            diagnostic = " ⚠️ [Meta API Sandbox Restriction] This recipient phone number is not registered/verified in your Meta Developer App Sandbox allowed recipient list! Go to developers.facebook.com -> WhatsApp -> API Setup, and add this phone number to your allowed list to receive messages.";
+          }
+          console.error(`[WhatsApp Service] Failed delivering message. Status: ${res.statusCode}.${diagnostic} Body: ${responseBody}`);
           resolve(false);
         }
       });
@@ -156,3 +160,75 @@ export function sendActualWhatsAppMessage(to: string, text: string): Promise<boo
     req.end();
   });
 }
+
+/**
+ * Tests WhatsApp Cloud API connectivity with current env values by sending a clean test message.
+ * Returns verbose HTTP response payload and HTTP code details to allow debugging Sandbox restrictions.
+ */
+export function testWhatsAppConnectivity(toPhone: string): Promise<{ success: boolean; statusCode?: number; responseBody?: string; error?: string }> {
+  const token = process.env.WHATSAPP_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+  if (!token) {
+    return Promise.resolve({ success: false, error: "Missing process.env.WHATSAPP_TOKEN environment variable." });
+  }
+  if (!phoneId) {
+    return Promise.resolve({ success: false, error: "Missing process.env.WHATSAPP_PHONE_NUMBER_ID environment variable." });
+  }
+
+  const cleanTo = toPhone.replace(/\D/g, "");
+  if (!cleanTo) {
+    return Promise.resolve({ success: false, error: "Invalid target phone number provided for the connectivity test." });
+  }
+
+  const payload = JSON.stringify({
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: cleanTo,
+    type: "text",
+    text: { preview_url: false, body: "Hello! This is a real-time connectivity and credential test from your SuprGhee CRM dashboard. Your Meta WhatsApp API is connected successfully!" }
+  });
+
+  const options = {
+    hostname: "graph.facebook.com",
+    path: `/v20.0/${phoneId}/messages`,
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(payload)
+    }
+  };
+
+  return new Promise((resolve) => {
+    const req = https.request(options, (res) => {
+      let responseBody = "";
+      res.on("data", (chunk) => {
+        responseBody += chunk;
+      });
+      res.on("end", () => {
+        const isOk = res.statusCode && res.statusCode >= 200 && res.statusCode < 300;
+        let finalResponseBody = responseBody;
+        if (!isOk && (responseBody.includes("131030") || responseBody.includes("Recipient phone number not in allowed list"))) {
+          finalResponseBody = responseBody + " | ⚠️ DIAGNOSIS: This is a Meta WhatsApp Cloud API Sandbox Restriction (error 131030). The recipient phone number must be added to your Facebook Developer Console sandbox recipient list before Meta allows sending outbound messages to it.";
+        }
+        resolve({
+          success: !!isOk,
+          statusCode: res.statusCode,
+          responseBody: finalResponseBody
+        });
+      });
+    });
+
+    req.on("error", (error) => {
+      resolve({
+        success: false,
+        error: error.message || String(error)
+      });
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
+

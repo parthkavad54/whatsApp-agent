@@ -1,11 +1,13 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
-import { handleWhatsAppVerification, handleWhatsAppMessage, registerWhatsAppMessageHandler, sendActualWhatsAppMessage } from "./server/services/whatsapp";
+import { handleWhatsAppVerification, handleWhatsAppMessage, registerWhatsAppMessageHandler, sendActualWhatsAppMessage, testWhatsAppConnectivity } from "./server/services/whatsapp";
 import dotenv from "dotenv";
 import { sendSuccess, sendError } from "./server/utils/response";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { Customer, Order, Product, Conversation, CallLog, PaymentLog, WebhookLog, MessageLine, SpeechPhrase, QuickReply } from "./src/types";
+import { loadAll, saveAll } from "./server/database";
+import { migrateJsonToSqlite } from "./server/migrate";
 
 dotenv.config();
 
@@ -696,80 +698,95 @@ try {
     console.log("[Vercel Startup] Bootstrapping database from bundled db.json to /tmp/db.json");
   }
 
+  // First load from JSON if any to acts as initial SQLite seeding source of truth
   if (fs.existsSync(DB_FILE_PATH)) {
     const rawData = fs.readFileSync(DB_FILE_PATH, "utf-8");
-    db = { ...db, ...JSON.parse(rawData) };
-    if (!db.quickReplies || db.quickReplies.length === 0) {
-      db.quickReplies = defaultQuickReplies;
-    }
-
-    // -------------------------------------------------------------
-    // Durable Database Auto-Cleanup for Legacy Raw JSON errors
-    // -------------------------------------------------------------
-    let scrubbedCount = 0;
-    if (db.conversations && Array.isArray(db.conversations)) {
-      db.conversations.forEach((conv: any) => {
-        if (conv.messages && Array.isArray(conv.messages)) {
-          conv.messages = conv.messages.map((m: any) => {
-            if (m.sender === "agent" && (m.text.includes("Raw error:") || m.text.includes("RESOURCE_EXHAUSTED") || m.text.includes("exceeded your current quota") || m.text.includes("Quota exceeded for metric"))) {
-              scrubbedCount++;
-              return {
-                ...m,
-                text: "Namaste! Our dynamic sales agent system is currently taking a quick breath. We offer 100% pure Bilona hand-churned Vedic Gir Cow A2 Desi Ghee (500ml for Rs 950, 1L for Rs 1800, 5L for Rs 8500). Please tell us your location or desired bottle size to complete your order!"
-              };
-            }
-            return m;
-          });
-        }
-      });
-    }
-    if (db.callLogs && Array.isArray(db.callLogs)) {
-      db.callLogs.forEach((log: any) => {
-        if (log.transcript && Array.isArray(log.transcript)) {
-          log.transcript = log.transcript.map((t: any) => {
-            if (t.speaker === "agent" && (t.phrase.includes("Raw error:") || t.phrase.includes("RESOURCE_EXHAUSTED") || t.phrase.includes("exceeded your current quota") || t.phrase.includes("Quota exceeded for metric"))) {
-              scrubbedCount++;
-              return {
-                ...t,
-                phrase: "Namaste! Parth bhai will update you on WhatsApp. Premium Gir cow ghee is available in 500ml and 1L glass jars. We will send you payment details soon. Thank you so much!"
-              };
-            }
-            return t;
-          });
-        }
-      });
-    }
-    if (scrubbedCount > 0) {
-      console.log(`[Database Startup] Cleaned ${scrubbedCount} legacy raw JSON model error messages from database logs to keep our chat contexts pristine.`);
-      try {
-        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
-      } catch (writeErr) {
-        console.error("Non-fatal write error while cleaning startup database:", writeErr);
-      }
-    }
-
-    console.log(`Durable Database loaded from ${DB_FILE_PATH}`);
-    dbLoaded = true;
+    const parsedData = JSON.parse(rawData);
+    db = { ...db, ...parsedData };
   }
+
+  // Load state from SQLite using loadAll with our local db as fallback / seed
+  db = loadAll(db);
+  if (!db.quickReplies || db.quickReplies.length === 0) {
+    db.quickReplies = defaultQuickReplies;
+  }
+
+  // -------------------------------------------------------------
+  // Durable Database Auto-Cleanup for Legacy Raw JSON errors
+  // -------------------------------------------------------------
+  let scrubbedCount = 0;
+  if (db.conversations && Array.isArray(db.conversations)) {
+    db.conversations.forEach((conv: any) => {
+      if (conv.messages && Array.isArray(conv.messages)) {
+        conv.messages = conv.messages.map((m: any) => {
+          if (m.sender === "agent" && (m.text.includes("Raw error:") || m.text.includes("RESOURCE_EXHAUSTED") || m.text.includes("exceeded your current quota") || m.text.includes("Quota exceeded for metric"))) {
+            scrubbedCount++;
+            return {
+              ...m,
+              text: "Namaste! Our dynamic sales agent system is currently taking a quick breath. We offer 100% pure Bilona hand-churned Vedic Gir Cow A2 Desi Ghee (500ml for Rs 950, 1L for Rs 1800, 5L for Rs 8500). Please tell us your location or desired bottle size to complete your order!"
+            };
+          }
+          return m;
+        });
+      }
+    });
+  }
+  if (db.callLogs && Array.isArray(db.callLogs)) {
+    db.callLogs.forEach((log: any) => {
+      if (log.transcript && Array.isArray(log.transcript)) {
+        log.transcript = log.transcript.map((t: any) => {
+          if (t.speaker === "agent" && (t.phrase.includes("Raw error:") || t.phrase.includes("RESOURCE_EXHAUSTED") || t.phrase.includes("exceeded your current quota") || t.phrase.includes("Quota exceeded for metric"))) {
+            scrubbedCount++;
+            return {
+              ...t,
+              phrase: "Namaste! Parth bhai will update you on WhatsApp. Premium Gir cow ghee is available in 500ml and 1L glass jars. We will send you payment details soon. Thank you so much!"
+            };
+          }
+          return t;
+        });
+      }
+    });
+  }
+  
+  if (scrubbedCount > 0) {
+    console.log(`[Database Startup] Cleaned ${scrubbedCount} legacy raw JSON model error messages to keep our SQLite database contexts pristine.`);
+    try {
+      saveAll(db);
+    } catch (writeErr) {
+      console.error("Non-fatal SQLite sync while cleaning startup database:", writeErr);
+    }
+  }
+
+  console.log(`Durable SQLite Database synced and loaded successfully!`);
+  dbLoaded = true;
 } catch (err) {
-  console.error("Error matching or reading db.json", err);
+  console.error("Error matching or reading database", err);
 }
 
 if (!dbLoaded) {
   try {
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
-    console.log(`Created new seed database at ${DB_FILE_PATH}`);
+    saveAll(db);
+    console.log(`Created new SQLite database tables and seeded successfully!`);
   } catch (err) {
-    console.error("Error creating initial seed database", err);
+    console.error("Error creating initial seed SQLite database", err);
   }
 }
 
 // Persist helper
 function saveToDB() {
   try {
+    // 1. Double save to SQLite for absolute reliability
+    saveAll(db);
+    console.log("[SQLite Database] Saved all collections successfully!");
+  } catch (err) {
+    console.error("[SQLite Database] Error persisting database collections to SQLite:", err);
+  }
+
+  // 2. Backward compatibility: also write to db.json
+  try {
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2));
   } catch (err) {
-    console.error("Error persisting database to db.json", err);
+    console.error("Error persisting backup database to db.json", err);
   }
 }
 
@@ -1126,7 +1143,8 @@ app.get("/api/health", (req: Request, res: Response) => {
     status: "ok",
     timestamp: Date.now(),
     env: process.env.VERCEL ? "vercel-serverless" : "container",
-    dbLoaded: !!db
+    dbLoaded: !!db,
+    mongoEnabled: !!process.env.MONGODB_URI
   }, "Server heartbeat online");
 });
 
@@ -1881,6 +1899,74 @@ app.post("/api/reorders/dispatch-whatsapp", (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+// Test WhatsApp Cloud API connectivity and output verbose response codes / error payloads
+app.post("/api/whatsapp/test-connection", async (req: Request, res: Response) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ success: false, error: "Missing target test phone number." });
+  }
+
+  try {
+    const result = await testWhatsAppConnectivity(phone);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || String(err)
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// Database Migration API from JSON to SQLite
+// -------------------------------------------------------------
+app.post("/api/db/migrate", (req: Request, res: Response) => {
+  try {
+    const report = migrateJsonToSqlite();
+    
+    // Reload active in-memory db state from SQLite to guarantee consistency
+    db = loadAll(db);
+
+    res.json(report);
+  } catch (err: any) {
+    console.error("[Migration API] Error running migration to SQLite:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message || String(err)
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// MongoDB Atlas Real-Time Bidirectional Synchronization Trigger
+// -------------------------------------------------------------
+app.post("/api/db/mongo-sync", async (req: Request, res: Response) => {
+  try {
+    if (!process.env.MONGODB_URI) {
+      return res.status(400).json({
+        success: false,
+        error: "MONGODB_URI environment variable is missing"
+      });
+    }
+    const { syncWithMongo } = await import("./database");
+    await syncWithMongo();
+    
+    // Reload active in-memory db state from the updated SQLite cache to guarantee consistency
+    db = loadAll(db);
+
+    res.json({
+      success: true,
+      message: "Sync complete! Connected to Atlas cluster, pulled fresh state, and hydrated local cache successfully."
+    });
+  } catch (err: any) {
+    console.error("[MongoDB Sync API] Error synchronized with Atlas cluster:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message || String(err)
+    });
+  }
+});
+
 // -------------------------------------------------------------
 // Update Prompts settings API
 // -------------------------------------------------------------
@@ -2051,7 +2137,7 @@ app.get("/api/sheets/download/:sheet", (req: Request, res: Response) => {
 // Vite Middleware for Full Stack
 // -------------------------------------------------------------
 async function bootstrap() {
-  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -2067,7 +2153,9 @@ async function bootstrap() {
     });
   }
 
-  if (!process.env.VERCEL) {
+  // Always listen in development or on Cloud Run/Container environments
+  const isCloudRun = !!(process.env.K_SERVICE || process.env.PORT);
+  if (!process.env.VERCEL || isCloudRun || process.env.NODE_ENV !== "production") {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Supr Ghee Sales OS Server listening on http://localhost:${PORT}`);
     });

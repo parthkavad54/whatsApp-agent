@@ -13,6 +13,7 @@ interface HeaderProps {
   theme?: "light" | "dark";
   toggleTheme?: () => void;
   serverStatus?: "connecting" | "healthy" | "data_error" | "offline";
+  heartbeatStatus?: "healthy" | "offline";
 }
 
 export default function Header({ 
@@ -25,7 +26,8 @@ export default function Header({
   setActiveTab,
   theme,
   toggleTheme,
-  serverStatus = "healthy"
+  serverStatus = "healthy",
+  heartbeatStatus = "healthy"
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -79,7 +81,7 @@ export default function Header({
         >
           <Menu size={19} />
         </button>
-        <h1 className="text-sm md:text-lg font-bold text-zinc-900 dark:text-white truncate font-serif tracking-tight pr-1 flex items-center gap-2">
+        <h1 className="text-sm md:text-lg font-bold text-zinc-900 dark:text-white truncate font-serif tracking-tight pr-1 flex items-center gap-1.5 flex-wrap">
           <span>{title}</span>
           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium font-sans border transition-all ${
             serverStatus === "healthy"
@@ -110,6 +112,23 @@ export default function Header({
               {serverStatus === "data_error" && "DB Err"}
               {serverStatus === "connecting" && "..."}
               {serverStatus === "offline" && "Offline"}
+            </span>
+          </span>
+
+          {/* Separate Heartbeat Monitor */}
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium font-sans border transition-all ${
+            heartbeatStatus === "healthy"
+              ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/10"
+              : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/20 animate-pulse"
+          }`}>
+            <span className={`w-1 h-1 rounded-full shrink-0 ${
+              heartbeatStatus === "healthy" ? "bg-amber-500" : "bg-rose-500"
+            }`} />
+            <span className="hidden sm:inline">
+              Heartbeat: {heartbeatStatus === "healthy" ? "OK" : "Offline"}
+            </span>
+            <span className="sm:hidden text-[8px]">
+              Pulse: {heartbeatStatus === "healthy" ? "OK" : "Err"}
             </span>
           </span>
         </h1>

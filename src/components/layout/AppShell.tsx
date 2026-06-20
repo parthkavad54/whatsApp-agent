@@ -12,6 +12,7 @@ interface AppShellProps {
   notifications?: any[];
   setNotifications?: React.Dispatch<React.SetStateAction<any[]>>;
   serverStatus?: "connecting" | "healthy" | "data_error" | "offline";
+  heartbeatStatus?: "healthy" | "offline";
 }
 
 export default function AppShell({ 
@@ -22,7 +23,8 @@ export default function AppShell({
   setSearchQuery,
   notifications,
   setNotifications,
-  serverStatus = "healthy"
+  serverStatus = "healthy",
+  heartbeatStatus = "healthy"
 }: AppShellProps) {
   const { t } = useLanguage();
   // Theme state synced with local storage and system preferences
@@ -125,6 +127,7 @@ export default function AppShell({
           theme={theme}
           toggleTheme={toggleTheme}
           serverStatus={serverStatus}
+          heartbeatStatus={heartbeatStatus}
         />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
             {children}

@@ -17,7 +17,8 @@ import {
   Sliders, 
   VolumeX,
   Play,
-  Square
+  Square,
+  AlertTriangle
 } from "lucide-react";
 import { Customer, Product, Conversation, QuickReply, CallLog } from "../types";
 
@@ -43,6 +44,7 @@ interface AIAgentTabProps {
   onSimulateCallPhrase: (phone: string, phrase: string) => Promise<{ response: string; parsedData?: any }>;
   onEndCall: (phone: string, notes?: string) => Promise<{ log: CallLog }>;
   onRefreshData: () => void;
+  mongoEnabled?: boolean;
 }
 
 export default function AIAgentTab({
@@ -61,7 +63,8 @@ export default function AIAgentTab({
   onSimulateWhatsApp,
   onSimulateCallPhrase,
   onEndCall,
-  onRefreshData
+  onRefreshData,
+  mongoEnabled = false
 }: AIAgentTabProps) {
   // Tabs "prompt" | "simulator-whatsapp" | "simulator-call" | "replies"
   const [subTab, setSubTab] = useState<"simulator-whatsapp" | "simulator-call" | "prompt" | "replies">("simulator-whatsapp");
@@ -98,6 +101,69 @@ export default function AIAgentTab({
   });
   const [callLogs, setCallLogs] = useState<any[]>([]);
   const [loadingPhrase, setLoadingPhrase] = useState(false);
+
+  // SQLite Database Migration States
+  const [migrationStatus, setMigrationStatus] = useState<"idle" | "migrating" | "success" | "error">("idle");
+  const [migrationResult, setMigrationResult] = useState<any>(null);
+  const [migrationError, setMigrationError] = useState("");
+
+  // MongoDB Atlas Synchronization States
+  const [mongoStatus, setMongoStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
+  const [mongoMsg, setMongoMsg] = useState("");
+
+  const handleRunSqlMigration = async () => {
+    setMigrationStatus("migrating");
+    setMigrationResult(null);
+    setMigrationError("");
+    try {
+      const res = await fetch("/api/db/migrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server returned a non-JSON response. This usually indicates a 500 internal server error or 404 endpoint mismatch on the backend.");
+      }
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMigrationStatus("success");
+        setMigrationResult(data);
+        onRefreshData();
+      } else {
+        setMigrationStatus("error");
+        setMigrationError(data.error || "Migration failed due to server error.");
+      }
+    } catch (err: any) {
+      setMigrationStatus("error");
+      setMigrationError(err.message || "Network request failed while migrating.");
+    }
+  };
+
+  const handleMongoSync = async () => {
+    setMongoStatus("syncing");
+    setMongoMsg("");
+    try {
+      const res = await fetch("/api/db/mongo-sync", {
+        method: "POST"
+      });
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server returned a non-JSON response. This usually indicates a 500 internal server error or 404 endpoint mismatch on the backend.");
+      }
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMongoStatus("success");
+        setMongoMsg(data.message || "Connected and bidirectionally synced state successfully!");
+        onRefreshData();
+      } else {
+        setMongoStatus("error");
+        setMongoMsg(data.error || "Sync with MongoDB Atlas timed out or was rejected.");
+      }
+    } catch (err: any) {
+      setMongoStatus("error");
+      setMongoMsg(err.message || "Network request failed while synchronizing with cluster.");
+    }
+  };
 
   useEffect(() => {
     if (prompts) {
@@ -522,6 +588,74 @@ export default function AIAgentTab({
               </div>
             </div>
           </div>
+
+          {/* Meta/Facebook WhatsApp Developer Sandbox Guide */}
+          <div className="col-span-12 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-6 rounded-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                <div>
+                  <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">
+                    Meta Sandbox Configuration: Recipient Phone Number Allowed List Setup
+                  </h3>
+                  <p className="text-[11px] text-stone-500 dark:text-zinc-400">Resolve OAuthException 400 Sandbox delivery restrictions in 5 minutes</p>
+                </div>
+              </div>
+              <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg">
+                Recommended Developer Prerequisite
+              </span>
+            </div>
+
+            <div className="text-xs text-stone-600 dark:text-zinc-300 space-y-3 leading-relaxed">
+              <p>
+                Meta's WhatsApp Cloud API operates in a strict <strong className="text-stone-800 dark:text-zinc-100">Sandbox Test Mode</strong> initially. To send simulated or real outbound automated messages to customers, you must explicitly register and verify those target numbers on your Facebook Developer dashboard.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                <div className="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-stone-200/70 dark:border-zinc-800 space-y-2">
+                  <span className="bg-stone-100 dark:bg-zinc-805 text-stone-700 dark:text-zinc-300 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded">STEP 1</span>
+                  <strong className="block text-stone-800 dark:text-zinc-200 font-serif text-[12px]">Access Settings Portal</strong>
+                  <p className="text-[11px] text-stone-500 dark:text-zinc-400">
+                    Log in to the <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer" className="text-amber-500 hover:underline">Meta Developer Dashboard</a>, choose your App, and navigate to <strong className="dark:text-zinc-100">WhatsApp</strong> &gt; <strong className="dark:text-zinc-100">API Setup</strong> or <strong className="dark:text-zinc-100">Getting Started</strong> on the left side-rail.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-stone-200/70 dark:border-zinc-800 space-y-2">
+                  <span className="bg-stone-100 dark:bg-zinc-805 text-stone-700 dark:text-zinc-300 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded">STEP 2</span>
+                  <strong className="block text-stone-800 dark:text-zinc-200 font-serif text-[12px]">Add Recipient List</strong>
+                  <p className="text-[11px] text-stone-500 dark:text-zinc-400">
+                    Scroll down to the <strong className="dark:text-zinc-100">"To"</strong> drop-down menu situated under the "Send and receive messages" panel. Select and click <strong className="dark:text-zinc-100">"Manage phone number list"</strong>.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-stone-200/70 dark:border-zinc-800 space-y-2">
+                  <span className="bg-stone-100 dark:bg-zinc-805 text-stone-700 dark:text-zinc-300 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded">STEP 3</span>
+                  <strong className="block text-stone-800 dark:text-zinc-200 font-serif text-[12px]">Validate via Outbound OTP</strong>
+                  <p className="text-[11px] text-stone-500 dark:text-zinc-400">
+                    Enter your recipient mobile number including country code (e.g., <code className="bg-stone-100 dark:bg-zinc-800 px-1 py-0.5 rounded font-mono text-[10px] text-stone-850 dark:text-zinc-250 font-semibold">+919XXXXXXXXX</code>) and receive a test verification OTP code on that WhatsApp client.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-stone-200/70 dark:border-zinc-800 space-y-2">
+                  <span className="bg-stone-100 dark:bg-zinc-850 text-stone-700 dark:text-zinc-300 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded">STEP 4</span>
+                  <strong className="block text-stone-800 dark:text-zinc-200 font-serif text-[12px]">Unlock Real Transmission</strong>
+                  <p className="text-[11px] text-stone-500 dark:text-zinc-400">
+                    Input the OTP code onto the popup modal. The verified target is immediately whitelisted in sandbox, eliminating any further <code className="text-rose-500 select-all font-mono font-bold">131030 / OAuthException (400)</code> delivery failures.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/60 p-4 rounded-xl flex gap-3 mt-4">
+                <CheckCircle className="w-4.5 h-4.5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-stone-600 dark:text-zinc-400 space-y-1">
+                  <strong className="block text-stone-800 dark:text-zinc-200">Sandbox Limitation Awareness</strong>
+                  <p>
+                    Up to 5 unique recipient phone numbers can be whitelisted per developer sandbox. To broadcast to any random customer, you must migrate your account from Sandbox to the Live production tier by adding a Business payment setup in Meta Console.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -700,57 +834,184 @@ export default function AIAgentTab({
 
       {/* Sub Tab Panel: System Prompt Studio */}
       {subTab === "prompt" && (
-        <form onSubmit={handleUpdatePrompts} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-5 transition-colors" id="form-prompt-studio">
-          <div>
-            <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">System Prompts & Trilingual Dictionary</h3>
-            <p className="text-xs text-stone-500 dark:text-zinc-400">Fine-tune translation patterns, objection protocols, or Vedic core definitions</p>
+        <div className="space-y-6">
+          <form onSubmit={handleUpdatePrompts} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-5 transition-colors" id="form-prompt-studio">
+            <div>
+              <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">System Prompts & Trilingual Dictionary</h3>
+              <p className="text-xs text-stone-500 dark:text-zinc-400">Fine-tune translation patterns, objection protocols, or Vedic core definitions</p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">WhatsApp Chat Assistant Instructions (System Rules)</label>
+                <textarea
+                  value={waPrompt}
+                  onChange={(e) => setWaPrompt(e.target.value)}
+                  rows={4}
+                  required
+                  className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">Interactive Call Script System Rules</label>
+                <textarea
+                  value={callPrompt}
+                  onChange={(e) => setCallPrompt(e.target.value)}
+                  rows={4}
+                  required
+                  className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">Objection & Bilona Ghee FAQ playbook</label>
+                <textarea
+                  value={objectionPlaybook}
+                  onChange={(e) => setObjectionPlaybook(e.target.value)}
+                  rows={4}
+                  required
+                  className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSavingPrompts}
+              className="bg-amber-500 hover:bg-amber-600 border border-amber-500 text-stone-950 px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:bg-stone-200"
+              id="btn-save-prompts"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>{isSavingPrompts ? "Saving to Database..." : "Commit Playbooks"}</span>
+            </button>
+          </form>
+
+          {/* SQLite Database Migration Portal */}
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4 transition-colors" id="sqlite-migration-settings-card">
+            <div className="flex gap-2.5 items-center">
+              <Database className="w-5 h-5 text-amber-500" />
+              <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">SQLite Relational Engine Migration</h3>
+            </div>
+            
+            <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
+              If you have legacy files containing Orders, Customers, and operational Logs, you can safely trigger a one-time migration to transfer all of them from the file-based <code className="bg-stone-50 dark:bg-zinc-800 px-1 py-0.5 rounded font-mono text-[10px]">db.json</code> structure directly into the high-performance SQLite database context.
+            </p>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleRunSqlMigration}
+                disabled={migrationStatus === "migrating"}
+                className="bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-stone-950 dark:text-stone-100 font-bold py-2.5 px-5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-stone-200 dark:disabled:bg-zinc-800 border-none"
+                id="btn-sqlite-migration-settings"
+              >
+                <RotateCcw className={`w-4 h-4 ${migrationStatus === "migrating" ? "animate-spin" : ""}`} />
+                <span>{migrationStatus === "migrating" ? "Commencing Relational Migration..." : "Migrate db.json to SQLite Database"}</span>
+              </button>
+            </div>
+
+            {migrationStatus === "success" && migrationResult && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 dark:border-emerald-900/40 p-4 rounded-xl space-y-2">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400 block">✓ Relational Data Sync Successful!</span>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-300 leading-relaxed">
+                  Source parsed and written to <code className="bg-emerald-100/50 dark:bg-emerald-950 px-1.5 py-0.5 rounded font-mono text-[10px]">db.sqlite</code> database successfully. Zero data loss achieved.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-[10px] text-stone-605 dark:text-zinc-400 pt-2.5 border-t border-emerald-200/30 dark:border-emerald-900/10">
+                  <div>Customers: <strong className="text-stone-800 dark:text-zinc-300">{migrationResult.migratedCounts?.customers ?? 0}</strong></div>
+                  <div>Orders: <strong className="text-stone-800 dark:text-zinc-300">{migrationResult.migratedCounts?.orders ?? 0}</strong></div>
+                  <div>Call Logs: <strong className="text-stone-800 dark:text-zinc-300">{migrationResult.migratedCounts?.callLogs ?? 0}</strong></div>
+                  <div>Webhooks: <strong className="text-stone-800 dark:text-zinc-300">{migrationResult.migratedCounts?.webhookLogs ?? 0}</strong></div>
+                </div>
+              </div>
+            )}
+
+            {migrationStatus === "error" && (
+              <div className="bg-red-50 dark:bg-rose-950/20 border border-red-200 dark:border-rose-900/40 p-4 rounded-xl flex gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-red-800 dark:text-rose-300">
+                  <strong className="font-bold">Migration Failed</strong>
+                  <p className="mt-1 leading-normal">{migrationError}</p>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">WhatsApp Chat Assistant Instructions (System Rules)</label>
-              <textarea
-                value={waPrompt}
-                onChange={(e) => setWaPrompt(e.target.value)}
-                rows={4}
-                required
-                className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
-              />
+          {/* MongoDB Atlas Portal Card */}
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4 transition-colors animate-fade-in" id="mongo-atlas-replication-card">
+            <div className="flex gap-2.5 items-center justify-between flex-wrap gap-y-3">
+              <div className="flex gap-2.5 items-center">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30">
+                  <Database className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm">MongoDB Atlas Cloud Replication</h3>
+                  <p className="text-[10px] text-stone-400 dark:text-zinc-500 font-mono">Continuous Sync Mirror Engine</p>
+                </div>
+              </div>
+              <div className="flex items-center">
+                {mongoEnabled ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    CONNECTED & ACTIVE
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-amber-150 text-amber-800 dark:bg-amber-955/20 dark:text-amber-450 border border-amber-200/40 dark:border-amber-900/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    LOCAL PERSISTENCE ONLY
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div>
-              <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">Interactive Call Script System Rules</label>
-              <textarea
-                value={callPrompt}
-                onChange={(e) => setCallPrompt(e.target.value)}
-                rows={4}
-                required
-                className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
-              />
+            <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
+              {mongoEnabled ? (
+                <span>Your sales system is actively mirrored in the cloud! Every write or deletion made to Products, Customers, Orders, Conversations, and Call Logs is pushed asynchronously to your remote <strong>MongoDB Atlas Cluster</strong>. Local page hits load instantly from lightning-fast cached SQLite tables.</span>
+              ) : (
+                <span>Your sales backend database is executing locally. To hook up real-time cloud storage and continuous backup with your <strong>MongoDB Atlas Cluster</strong>, locate the settings menu in your AI Studio dashboard and define the <code className="bg-stone-50 dark:bg-zinc-800 px-1 py-0.5 rounded font-mono text-[10px]">MONGODB_URI</code> environment variable.</span>
+              )}
+            </p>
+
+            <div className="pt-1 flex flex-wrap gap-3 items-center">
+              <button
+                type="button"
+                onClick={handleMongoSync}
+                disabled={mongoStatus === "syncing" || !mongoEnabled}
+                className={`font-semibold py-2 px-4 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                  mongoEnabled 
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-700 dark:hover:bg-emerald-800 border-none" 
+                    : "bg-stone-100 text-stone-400 dark:bg-zinc-800 dark:text-zinc-500 border border-stone-205 dark:border-zinc-700"
+                }`}
+                id="btn-mongo-sync-trigger"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${mongoStatus === "syncing" ? "animate-spin" : ""}`} />
+                <span>{mongoStatus === "syncing" ? "Syncing cluster state..." : "Trigger Cloud Connection Sync"}</span>
+              </button>
             </div>
 
-            <div>
-              <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1.5">Objection & Bilona Ghee FAQ playbook</label>
-              <textarea
-                value={objectionPlaybook}
-                onChange={(e) => setObjectionPlaybook(e.target.value)}
-                rows={4}
-                required
-                className="w-full text-xs font-mono border border-stone-205 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:border-amber-500"
-              />
-            </div>
+            {mongoStatus === "success" && mongoMsg && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 p-4 rounded-xl space-y-2 animate-fade-in">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400 block flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Replication Sync Complete!
+                </span>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-300 leading-relaxed">
+                  {mongoMsg}
+                </p>
+              </div>
+            )}
+
+            {mongoStatus === "error" && mongoMsg && (
+              <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 p-4 rounded-xl flex gap-3 animate-fade-in">
+                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-red-800 dark:text-rose-300">
+                  <span className="font-bold block">Sync Attempt Failed</span>
+                  <p className="mt-1 leading-normal">{mongoMsg}</p>
+                </div>
+              </div>
+            )}
           </div>
-
-          <button
-            type="submit"
-            disabled={isSavingPrompts}
-            className="bg-amber-500 hover:bg-amber-600 border border-amber-500 text-stone-950 px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:bg-stone-200"
-            id="btn-save-prompts"
-          >
-            <Sliders className="w-4 h-4" />
-            <span>{isSavingPrompts ? "Saving to Database..." : "Commit Playbooks"}</span>
-          </button>
-        </form>
+        </div>
       )}
 
       {/* Sub Tab Panel: Quick replies */}

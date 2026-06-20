@@ -11,7 +11,7 @@ import { Product, Customer, Order, Conversation, CallLog, WebhookLog, QuickReply
 import { Sparkles, RefreshCcw } from "lucide-react";
 
 export default function App() {
-  // DB States Hydrated from server
+  // DB States Hydrated from server with local storage fallback
   const [dbData, setDbData] = useState<{
     products: Product[];
     customers: Customer[];
@@ -26,15 +26,45 @@ export default function App() {
       objectionHandling: string;
     };
     quickReplies?: QuickReply[];
-  } | null>(null);
+  } | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("last_known_good_db_data");
+      try {
+        return saved ? JSON.parse(saved) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  });
 
-  const [isGeminiConfigured, setIsGeminiConfigured] = useState(false);
-  const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
-  const [isLiteQuotaExhausted, setIsLiteQuotaExhausted] = useState(false);
+  const [isGeminiConfigured, setIsGeminiConfigured] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("last_known_gemini_configured");
+      return saved === "true";
+    }
+    return false;
+  });
+  const [isQuotaExhausted, setIsQuotaExhausted] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("last_known_quota_exhausted");
+      return saved === "true";
+    }
+    return false;
+  });
+  const [isLiteQuotaExhausted, setIsLiteQuotaExhausted] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("last_known_lite_quota_exhausted");
+      return saved === "true";
+    }
+    return false;
+  });
 
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<"connecting" | "healthy" | "data_error" | "offline">("connecting");
+  const [heartbeatStatus, setHeartbeatStatus] = useState<"healthy" | "offline">("healthy");
+  const [heartbeatInfo, setHeartbeatInfo] = useState<any>(null);
 
   // App Layout Preferences
   const [activeTab, setActiveTab] = useState<
@@ -54,6 +84,7 @@ export default function App() {
   });
 
   const prevOrdersRef = useRef<Order[]>([]);
+  const isSyncingRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem("app_notifications", JSON.stringify(notifications));
@@ -61,34 +92,61 @@ export default function App() {
 
   // Hydration API fetching from Express backend
   const loadDatabaseState = async (silent = false) => {
-    try {
-      let res;
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+
+    const backoffIntervals = [3000, 6000, 12000];
+    let attempt = 0;
+    let res: Response | null = null;
+    let lastError: any = null;
+
+    while (true) {
       try {
         res = await fetch("/api/data");
-      } catch (fetchErr: any) {
-        // Fetch failed entirely (network down / no response)
-        setServerStatus("offline");
-        throw new Error("Traditional ledger API is unreachable (Network socket refused or offline)");
-      }
-
-      if (!res.ok) {
-        // If not ok (e.g. 500 error), try to check /api/health
-        try {
-          const healthRes = await fetch("/api/health");
-          if (healthRes.ok) {
-            setServerStatus("data_error");
-            throw new Error(`Data Sync issue detected. Ghee server is active, but ledger DB query threw an internal error (Status: ${res.status})`);
-          } else {
-            setServerStatus("offline");
-            throw new Error(`Traditional ledger API is unreachable (Health ping returned ${healthRes.status})`);
+        if (res.ok) {
+          break; // Success!
+        }
+        throw new Error(`Data ledger query rejected (Status: ${res.status})`);
+      } catch (err: any) {
+        lastError = err;
+        if (attempt < backoffIntervals.length) {
+          const delay = backoffIntervals[attempt];
+          attempt++;
+          if (!silent) {
+            toast.loading(
+              `Sync warning: connection interrupted (attempting recovery in ${delay / 1000}s)...`,
+              { id: "sync-recovery-toast" }
+            );
           }
-        } catch (healthErr) {
-          setServerStatus("offline");
-          throw new Error("Traditional ledger API is unreachable (Server offline or socket broken)");
+          setServerStatus("connecting");
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        } else {
+          // All retry attempts exhausted
+          if (!silent) {
+            toast.dismiss("sync-recovery-toast");
+          }
+          break;
         }
       }
-      
+    }
+
+    try {
+      if (!res || !res.ok) {
+        // If the server failed to respond or returned a 500 status after retries (forcing offline state)
+        setServerStatus("offline");
+        throw lastError || new Error(`Traditional ledger API is unreachable`);
+      }
+
+      // We reached the server successfully! Dismiss the toast if present
+      if (!silent) {
+        toast.dismiss("sync-recovery-toast");
+      }
+
       setServerStatus("healthy");
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Data ledger API returned a non-JSON response (Content-Type: ${contentType || 'unknown'}). This indicates a server-side route error or server startup failure.`);
+      }
       const result = await res.json();
       
       if (result.success && result.data) {
@@ -186,28 +244,48 @@ export default function App() {
         setIsGeminiConfigured(result.data.isGeminiConfigured);
         setIsQuotaExhausted(result.data.isQuotaExhausted || false);
         setIsLiteQuotaExhausted(result.data.isLiteQuotaExhausted || false);
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem("last_known_good_db_data", JSON.stringify(result.data.db));
+          localStorage.setItem("last_known_gemini_configured", String(result.data.isGeminiConfigured));
+          localStorage.setItem("last_known_quota_exhausted", String(result.data.isQuotaExhausted || false));
+          localStorage.setItem("last_known_lite_quota_exhausted", String(result.data.isLiteQuotaExhausted || false));
+        }
       }
       setErrorMsg(null);
     } catch (err: any) {
       console.error("[Data Sync Fail]:", err);
-      // Dual check asynchronously to update serverStatus indicator
-      fetch("/api/health")
-        .then(h => {
-          if (h.ok) {
-            setServerStatus("data_error");
-          } else {
-            setServerStatus("offline");
-          }
-        })
-        .catch(() => {
-          setServerStatus("offline");
-        });
+      
+      // Local storage fallback hydration
+      if (typeof window !== "undefined") {
+        const savedData = localStorage.getItem("last_known_good_db_data");
+        if (savedData) {
+          try {
+            const parsed = JSON.parse(savedData);
+            setDbData(parsed);
+
+            if (parsed.orders && (!prevOrdersRef.current || prevOrdersRef.current.length === 0)) {
+              prevOrdersRef.current = parsed.orders;
+            }
+
+            if (!silent) {
+              toast.error("Offline Mode: Sync link broken. Running on last known cached ledger state.", {
+                id: "offline-fallback-toast"
+              });
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Automatically transition to offline status
+      setServerStatus("offline");
 
       if (!silent) {
         setErrorMsg(err.message || "Failed to sync with local database ledger");
       }
     } finally {
       setIsLoading(false);
+      isSyncingRef.current = false;
     }
   };
 
@@ -216,6 +294,38 @@ export default function App() {
     loadDatabaseState();
     const interval = setInterval(() => loadDatabaseState(true), 4500);
     return () => clearInterval(interval);
+  }, []);
+
+  // Independent robust useEffect heartbeat checker to periodically call dedicated /api/health
+  useEffect(() => {
+    let isActive = true;
+    const executeHeartbeatCheck = async () => {
+      try {
+        const response = await fetch("/api/health");
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload.success && payload.data) {
+            if (isActive) {
+              setHeartbeatStatus("healthy");
+              setHeartbeatInfo(payload.data);
+            }
+          } else {
+            if (isActive) setHeartbeatStatus("offline");
+          }
+        } else {
+          if (isActive) setHeartbeatStatus("offline");
+        }
+      } catch (err) {
+        if (isActive) setHeartbeatStatus("offline");
+      }
+    };
+
+    executeHeartbeatCheck();
+    const pulseInterval = setInterval(executeHeartbeatCheck, 6000);
+    return () => {
+      isActive = false;
+      clearInterval(pulseInterval);
+    };
   }, []);
 
   // Mutator definitions connecting to server integrations
@@ -531,6 +641,7 @@ export default function App() {
             onSimulateCallPhrase={handleSimulateCallPhrase}
             onEndCall={handleEndCall}
             onRefreshData={() => loadDatabaseState(true)}
+            mongoEnabled={heartbeatInfo?.mongoEnabled}
           />
         );
       case "integrations":
@@ -574,7 +685,7 @@ export default function App() {
             <p className="text-xs text-stone-550 mt-1">Establishing direct link with local database repository</p>
           </div>
         </div>
-      ) : errorMsg ? (
+      ) : (errorMsg && !dbData) ? (
         <div className="min-h-screen bg-stone-100 dark:bg-zinc-950 flex flex-col items-center justify-center p-4 sm:p-6 transition-colors" id="verification-hub">
           <div className="max-w-md w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6">
             
@@ -608,14 +719,14 @@ export default function App() {
                     Express API Server Heartbeat
                   </span>
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
-                    serverStatus === "data_error" || serverStatus === "healthy"
+                    heartbeatStatus === "healthy"
                       ? "bg-emerald-50 text-emerald-700 border-emerald-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/20"
                       : "bg-rose-50 text-rose-700 border-rose-200/50 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/20 animate-pulse"
                   }`}>
                     <span className={`w-1 h-1 rounded-full ${
-                      serverStatus === "data_error" || serverStatus === "healthy" ? "bg-emerald-500" : "bg-rose-500"
+                      heartbeatStatus === "healthy" ? "bg-emerald-500" : "bg-rose-500"
                     }`} />
-                    {serverStatus === "data_error" || serverStatus === "healthy" ? "HEALTHY" : "OFFLINE"}
+                    {heartbeatStatus === "healthy" ? `HEALTHY (${heartbeatInfo?.env || "online"})` : "OFFLINE"}
                   </span>
                 </div>
 
@@ -721,6 +832,7 @@ export default function App() {
           notifications={notifications}
           setNotifications={setNotifications}
           serverStatus={serverStatus}
+          heartbeatStatus={heartbeatStatus}
         >
           {renderActiveTabContent()}
         </AppShell>

@@ -8,7 +8,10 @@ import {
   Phone, 
   Scale, 
   Layers,
-  AlertTriangle
+  AlertTriangle,
+  FileDown,
+  Download,
+  FileSpreadsheet
 } from "lucide-react";
 import {
   AreaChart,
@@ -27,6 +30,7 @@ import {
 } from "recharts";
 import { Product, Order, Customer } from "../types";
 import { useLanguage } from "../context/LanguageContext";
+import { exportOrdersCSV, exportCustomersCSV, exportConsolidatedPDF } from "../utils/exportUtils";
 
 interface AnalyticsTabProps {
   orders: Order[];
@@ -101,6 +105,53 @@ export default function AnalyticsTab({ orders, customers, products }: AnalyticsT
 
   return (
     <div className="space-y-6" id="analytics-tab-container">
+      {/* Report Generating Toolbar */}
+      <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors" id="business-report-export-toolbar">
+        <div>
+          <h2 className="font-serif font-bold text-stone-900 dark:text-zinc-100 text-sm flex items-center gap-2">
+            <FileDown className="w-5 h-5 text-amber-600 dark:text-amber-500" />
+            <span>Business Reports & Export Portal</span>
+          </h2>
+          <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1">
+            Generate and download business compliance spreadsheets (CSV) or high-fidelity certified PDF executive summaries.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2.5">
+          {/* PDF Export Button */}
+          <button
+            onClick={() => exportConsolidatedPDF(orders, customers, products, totalRevenue, totalOrders, averageTicketSize)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition duration-150 cursor-pointer"
+            title="Download full business PDF summary"
+            id="download-pdf-report-btn"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Executive PDF</span>
+          </button>
+
+          {/* Orders CSV Button */}
+          <button
+            onClick={() => exportOrdersCSV(orders)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 hover:bg-stone-50 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-300 font-semibold text-xs rounded-xl border border-stone-200 dark:border-zinc-800 transition duration-150 cursor-pointer"
+            title="Export orders lists/spreadsheet"
+            id="download-orders-csv-btn"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-stone-500" />
+            <span>Export Orders CSV</span>
+          </button>
+
+          {/* Customers CSV Button */}
+          <button
+            onClick={() => exportCustomersCSV(customers)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 hover:bg-stone-50 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-300 font-semibold text-xs rounded-xl border border-stone-200 dark:border-zinc-800 transition duration-150 cursor-pointer"
+            title="Export customers roster"
+            id="download-customers-csv-btn"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-stone-500" />
+            <span>Export Customers CSV</span>
+          </button>
+        </div>
+      </div>
+
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Metric 1: Total Revenue */}
