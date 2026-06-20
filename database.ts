@@ -4,7 +4,25 @@ import fs from "fs";
 import { MongoClient } from "mongodb";
 import { Product, Customer, Order, Conversation, CallLog, PaymentLog, WebhookLog, QuickReply } from "./src/types";
 
-const DB_PATH = path.join(process.cwd(), "db.sqlite");
+let DB_PATH = path.join(process.cwd(), "db.sqlite");
+
+if (process.env.VERCEL) {
+  const tmpPath = path.join("/tmp", "db.sqlite");
+  const localPath = path.join(process.cwd(), "db.sqlite");
+  if (!fs.existsSync(tmpPath)) {
+    try {
+      if (fs.existsSync(localPath)) {
+        fs.copyFileSync(localPath, tmpPath);
+        console.log("[Vercel Environment] Successfully copied read-only db.sqlite from workspace root to writable /tmp/db.sqlite");
+      } else {
+        console.log("[Vercel Environment] local workspace db.sqlite not found. A fresh blank sqlite database will be initialized under /tmp/db.sqlite");
+      }
+    } catch (err: any) {
+      console.error("[Vercel Handshake] Failed cloning db.sqlite to writable temp folder:", err.message || err);
+    }
+  }
+  DB_PATH = tmpPath;
+}
 
 let dbInstance: Database.Database | null = null;
 let isSyncing = false;

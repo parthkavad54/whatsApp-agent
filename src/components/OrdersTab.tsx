@@ -56,6 +56,23 @@ export default function OrdersTab({
   const [selectedLabelOrder, setSelectedLabelOrder] = useState<Order | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
+  // Predefined default thresholds block for specific Ghee sizes
+  const [thresholds, setThresholds] = useState<Record<string, number>>({
+    "500ml": 15,
+    "1L": 20,
+    "5L": 5,
+    "2 x 1L": 8
+  });
+  // Toggle for thresholds editor controller configuration
+  const [showThresholdConfig, setShowThresholdConfig] = useState(false);
+
+  // Identify products with stock below threshold
+  const lowStockProducts = products.filter(p => {
+    const size = p.size || "1L";
+    const threshold = thresholds[size] !== undefined ? thresholds[size] : 10;
+    return p.stock < threshold;
+  });
+
   const handleModifyStatus = async (orderId: string, paymentVal?: string, shippingVal?: string) => {
     setUpdatingOrderId(orderId);
     try {
@@ -674,6 +691,109 @@ Thank you for supporting pure traditional dairy.
           <Plus className="w-4 h-4" />
           <span>{t("orders.manualBooking")}</span>
         </button>
+      </div>
+
+      {/* Automated Stock Level Alert Panel */}
+      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3" id="automated-stock-alert-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-1.5 rounded-lg ${lowStockProducts.length > 0 ? "bg-rose-105 text-rose-700 animate-pulse" : "bg-emerald-100 text-emerald-700"}`}>
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-serif font-bold text-stone-900 text-xs flex items-center gap-2">
+                <span>Automated Stock Security Sentinel</span>
+                {lowStockProducts.length > 0 ? (
+                  <span className="bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                    {lowStockProducts.length} Size{lowStockProducts.length === 1 ? "" : "s"} Low
+                  </span>
+                ) : (
+                  <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                    All Sizes Secure
+                  </span>
+                )}
+              </h3>
+              <p className="text-[10px] text-stone-500 mt-0.5">
+                Monitoring physical dispatch buffer limits to guarantee rapid customer order fulfillment.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowThresholdConfig(!showThresholdConfig)}
+            className="text-[10px] font-bold text-amber-700 hover:underline flex items-center gap-1 self-start sm:self-auto cursor-pointer"
+            id="toggle-threshold-config-btn"
+          >
+            {showThresholdConfig ? "Hide Threshold Safety Limits" : "Configure Custom Threshold Limits"}
+          </button>
+        </div>
+
+        {/* Configurator Slider controls expanded state */}
+        {showThresholdConfig && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2.5 border-t border-stone-200/50 transition-all duration-300">
+            {Object.keys(thresholds).map((size) => (
+              <div key={size} className="bg-white p-2.5 rounded-xl border border-stone-200 flex flex-col space-y-1">
+                <span className="text-[10px] font-bold text-stone-500 block">
+                  {size} Safe Stock
+                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    value={thresholds[size] || 10}
+                    onChange={(e) => setThresholds({
+                      ...thresholds,
+                      [size]: parseInt(e.target.value) || 10
+                    })}
+                    className="w-full h-1 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  />
+                  <span className="text-[11px] font-mono font-bold text-stone-800 w-5 text-right">
+                    {thresholds[size]}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dynamic Warning Alert Boxes for Low Stocks */}
+        {lowStockProducts.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 animate-fadeIn">
+            {lowStockProducts.map(p => {
+              const currentThreshold = thresholds[p.size] || 10;
+              const unitMissing = currentThreshold - p.stock;
+              return (
+                <div 
+                  key={p.id} 
+                  className="bg-rose-50 border-l-4 border-rose-505 p-2.5 rounded-r-xl flex items-start gap-2.5"
+                  id={`alert-size-${p.size}`}
+                >
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <strong className="text-xs text-rose-900 font-serif font-semibold">
+                        {p.size} Packaging Bottleneck Detected
+                      </strong>
+                      <span className="text-[10px] font-mono font-bold text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded">
+                        Stock: {p.stock}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-rose-700 mt-1 leading-snug">
+                      Alert! Available physical inventory ({p.stock} units) has dropped below your requested custom threshold of <strong className="font-semibold">{currentThreshold} jars</strong>. Please authorize batch replenishment of <span className="font-bold underline">{unitMissing} jar{unitMissing > 1 ? "s" : ""}</span> of {p.size} design size immediately.
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-emerald-50/50 border-l-4 border-emerald-500 p-2.5 rounded-r-xl flex items-center gap-2.5 text-emerald-800">
+            <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span className="text-[10px] leading-snug">
+              Excellent! All Ghee packaging configurations meet active safe thresholds. Available buffers are perfectly sized to handle incoming demand.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Filter and search parameters */}
