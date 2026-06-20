@@ -12,6 +12,7 @@ const translations: Record<Language, Record<string, string>> = {
     "nav.analytics": "Analytics",
     "nav.integrations": "Integrations",
     "nav.logs": "Logs & Activity",
+    "nav.activity": "System Activity",
 
     // Header
     "header.newOrder": "New Order",
@@ -99,6 +100,7 @@ const translations: Record<Language, Record<string, string>> = {
     "nav.analytics": "વિશ્લેષણ",
     "nav.integrations": "ઇન્ટિગ્રેશન",
     "nav.logs": "લોગ પ્રવૃત્તિ",
+    "nav.activity": "સિસ્ટમ પ્રવૃત્તિ",
 
     // Header
     "header.newOrder": "નવો ઓર્ડર",

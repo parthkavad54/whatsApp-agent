@@ -7,6 +7,7 @@ import CustomersTab from "./components/CustomersTab";
 import AIAgentTab from "./components/AIAgentTab";
 import IntegrationsTab from "./components/IntegrationsTab";
 import LogsTab from "./components/LogsTab";
+import ActivityTab from "./components/ActivityTab";
 import { Product, Customer, Order, Conversation, CallLog, WebhookLog, QuickReply } from "./types";
 import { Sparkles, RefreshCcw } from "lucide-react";
 
@@ -68,7 +69,7 @@ export default function App() {
 
   // App Layout Preferences
   const [activeTab, setActiveTab] = useState<
-    "analytics" | "orders" | "customers" | "ai-agent" | "analytics-detail" | "integrations" | "logs"
+    "analytics" | "orders" | "customers" | "ai-agent" | "analytics-detail" | "integrations" | "logs" | "activity"
   >("analytics");
 
   // Global search state
@@ -662,6 +663,12 @@ export default function App() {
             callLogs={dbData.callLogs}
             searchQuery={globalSearchQuery}
             onSearchQueryChange={setGlobalSearchQuery}
+          />
+        );
+      case "activity":
+        return (
+          <ActivityTab 
+            webhookLogs={dbData.webhookLogs}
           />
         );
       default:

@@ -100,6 +100,7 @@ export default function AppShell({
         case "analytics-detail": return t("nav.analytics");
         case "integrations": return t("nav.integrations");
         case "logs": return t("nav.logs");
+        case "activity": return t("nav.activity");
         default: return "Dashboard";
     }
   }

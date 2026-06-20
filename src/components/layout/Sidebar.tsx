@@ -1,5 +1,5 @@
 
-import { LayoutDashboard, Users, MessageSquare, TrendingUp, Settings, LogOut, Bot, Plug, Languages, Moon, Sun, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, Users, MessageSquare, TrendingUp, Settings, LogOut, Bot, Plug, Languages, Moon, Sun, ShoppingBag, Activity } from "lucide-react";
 import { useLanguage } from "../../context/LanguageContext";
 
 interface SidebarProps {
@@ -22,6 +22,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, toggleSidebar
     { id: "analytics-detail", label: t("nav.analytics"), icon: TrendingUp },
     { id: "integrations", label: t("nav.integrations"), icon: Plug },
     { id: "logs", label: t("nav.logs"), icon: MessageSquare },
+    { id: "activity", label: t("nav.activity"), icon: Activity },
   ];
 
   return (

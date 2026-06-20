@@ -1340,6 +1340,21 @@ async function processIncomingWhatsAppMessage(
     timestamp: new Date().toISOString()
   });
   conversation.updatedAt = new Date().toISOString();
+
+  // Log automated system reply event
+  db.webhookLogs.unshift({
+    id: `agent-wa-${Date.now().toString().slice(-4)}`,
+    timestamp: new Date().toISOString(),
+    service: "WhatsApp",
+    event: "automated_agent_reply",
+    payload: { 
+      phone: cleanPhone, 
+      customerName: customer ? customer.name : "WhatsApp Patron",
+      replyText: replyText, 
+      toolsUsed: toolsUsed || [] 
+    }
+  });
+
   saveToDB();
 
   // ATTEMPT LIVE PRODUCTION DELIVERY (using WHATSAPP_TOKEN & WHATSAPP_PHONE_NUMBER_ID if configured)
@@ -1894,6 +1909,21 @@ app.post("/api/reorders/dispatch-whatsapp", (req: Request, res: Response) => {
     timestamp: new Date().toISOString()
   });
   conversation.updatedAt = new Date().toISOString();
+
+  // Log automated system reminder dispatch event
+  const customer = db.customers.find(c => c.phone === cleanPhone);
+  db.webhookLogs.unshift({
+    id: `cron-wa-${Date.now().toString().slice(-4)}`,
+    timestamp: new Date().toISOString(),
+    service: "WhatsApp",
+    event: "automated_reminder_dispatched",
+    payload: { 
+      phone: cleanPhone, 
+      customerName: customer ? customer.name : "WhatsApp Patron",
+      message: message 
+    }
+  });
+
   saveToDB();
 
   res.json({ success: true });

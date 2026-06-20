@@ -1,8 +1,32 @@
-import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import { MongoClient } from "mongodb";
 import { Product, Customer, Order, Conversation, CallLog, PaymentLog, WebhookLog, QuickReply } from "./src/types";
+import { createRequire } from "module";
+
+const PRIMARY_KEYS: Record<string, string> = {
+  products: "id",
+  customers: "phone",
+  orders: "orderId",
+  conversations: "customerPhone",
+  call_logs: "id",
+  payments: "razorpayPaymentId",
+  webhook_logs: "id",
+  quick_replies: "id",
+  prompts: "id"
+};
+
+const MEMORY_DB: Record<string, any[]> = {
+  products: [],
+  customers: [],
+  orders: [],
+  conversations: [],
+  call_logs: [],
+  payments: [],
+  webhook_logs: [],
+  quick_replies: [],
+  prompts: []
+};
 
 let DB_PATH = path.join(process.cwd(), "db.sqlite");
 
@@ -24,20 +48,194 @@ if (process.env.VERCEL) {
   DB_PATH = tmpPath;
 }
 
-let dbInstance: Database.Database | null = null;
+function saveMemoryDbToDisk() {
+  try {
+    fs.writeFileSync(DB_PATH + ".json", JSON.stringify(MEMORY_DB, null, 2));
+    const backupPath = process.env.VERCEL ? "/tmp/db.json" : path.join(process.cwd(), "db.json");
+    fs.writeFileSync(backupPath, JSON.stringify(MEMORY_DB, null, 2));
+  } catch (err: any) {
+    console.error("[Fallback DB] Error persisting memory state:", err.message);
+  }
+}
+
+function loadMemoryDbFromDisk() {
+  const backupPath = process.env.VERCEL ? "/tmp/db.json" : path.join(process.cwd(), "db.json");
+  const fallbackPaths = [DB_PATH + ".json", backupPath, path.join(process.cwd(), "db.json")];
+  for (const p of fallbackPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf-8");
+        const parsed = JSON.parse(content);
+        if (parsed && typeof parsed === "object") {
+          Object.keys(MEMORY_DB).forEach(key => {
+            if (Array.isArray(parsed[key])) {
+              MEMORY_DB[key] = parsed[key];
+            }
+          });
+          console.log(`[Fallback DB] Successfully loaded state from ${p}`);
+          return;
+        }
+      } catch (err: any) {
+        console.error(`[Fallback DB] Could not read state from ${p}:`, err.message);
+      }
+    }
+  }
+}
+
+// Emulated Statement
+class FallbackStatement {
+  sql: string;
+  constructor(sql: string) {
+    this.sql = sql;
+  }
+
+  run(...args: any[]) {
+    const sql = this.sql;
+    try {
+      // 1. Create table
+      if (sql.includes("CREATE TABLE IF NOT EXISTS")) {
+        const matchTable = sql.match(/CREATE TABLE IF NOT EXISTS\s+(\w+)/i);
+        if (matchTable) {
+          const table = matchTable[1].toLowerCase();
+          if (!MEMORY_DB[table]) {
+            MEMORY_DB[table] = [];
+          }
+        }
+        return { changes: 0, lastInsertRowid: 0 };
+      }
+
+      // 2. Insert or Replace
+      if (sql.includes("INSERT OR REPLACE INTO")) {
+        const matchTable = sql.match(/INSERT OR REPLACE INTO\s+(\w+)/i);
+        if (matchTable) {
+          const table = matchTable[1].toLowerCase();
+          const primaryKey = PRIMARY_KEYS[table] || "id";
+
+          const fieldsMatch = sql.match(/\(([^)]+)\)/);
+          if (fieldsMatch) {
+            const fields = fieldsMatch[1].split(",").map(f => f.trim());
+            const record: any = {};
+            fields.forEach((field, index) => {
+              record[field] = args[index];
+            });
+
+            if (!MEMORY_DB[table]) {
+              MEMORY_DB[table] = [];
+            }
+
+            MEMORY_DB[table] = MEMORY_DB[table].filter((row: any) => String(row[primaryKey]) !== String(record[primaryKey]));
+            MEMORY_DB[table].push(record);
+            saveMemoryDbToDisk();
+          }
+        }
+        return { changes: 1, lastInsertRowid: 1 };
+      }
+
+      // 3. Delete from table where key = ?
+      if (sql.includes("DELETE FROM")) {
+        const matchTable = sql.match(/DELETE FROM\s+(\w+)/i);
+        if (matchTable) {
+          const table = matchTable[1].toLowerCase();
+          if (sql.includes("WHERE")) {
+            const primaryKey = PRIMARY_KEYS[table] || "id";
+            MEMORY_DB[table] = MEMORY_DB[table].filter((row: any) => String(row[primaryKey]) !== String(args[0]));
+          } else {
+            MEMORY_DB[table] = [];
+          }
+          saveMemoryDbToDisk();
+        }
+        return { changes: 1, lastInsertRowid: 1 };
+      }
+    } catch (err: any) {
+      console.error("[Fallback DB Statement execution failed]:", err.message);
+    }
+    return { changes: 0, lastInsertRowid: 0 };
+  }
+
+  all(...args: any[]) {
+    const sql = this.sql;
+    try {
+      if (sql.includes("SELECT * FROM")) {
+        const matchTable = sql.match(/SELECT \* FROM\s+(\w+)/i);
+        if (matchTable) {
+          const table = matchTable[1].toLowerCase();
+          let result = [...(MEMORY_DB[table] || [])];
+
+          const matchOrder = sql.match(/ORDER BY\s+(\w+)\s+DESC/i);
+          if (matchOrder) {
+            const sortField = matchOrder[1];
+            result.sort((a, b) => {
+              const valA = String(a[sortField] || "");
+              const valB = String(b[sortField] || "");
+              return valB.localeCompare(valA);
+            });
+          }
+          return result;
+        }
+      }
+    } catch (err: any) {
+      console.error("[Fallback DB Statement .all execution failed]:", err.message);
+    }
+    return [];
+  }
+
+  get(...args: any[]) {
+    const list = this.all(...args);
+    return list.length > 0 ? list[0] : null;
+  }
+}
+
+// Emulated Database
+class FallbackDatabase {
+  constructor(dbPath: string) {
+    console.log("[Fallback DB] Initializing standalone local JSON-backed store at", dbPath);
+    loadMemoryDbFromDisk();
+  }
+  pragma(sql: string) {
+    // No-op
+  }
+  transaction(fn: Function) {
+    return () => {
+      fn();
+    };
+  }
+  prepare(sql: string) {
+    return new FallbackStatement(sql);
+  }
+}
+
+let Database: any = null;
+try {
+  const requireModule = createRequire(import.meta.url);
+  Database = requireModule("better-sqlite3");
+} catch (err: any) {
+  console.log("[Database Init] better-sqlite3 not found or native compilation mismatch. Active high-compatibility JS fallback database layer.");
+}
+
+let dbInstance: any = null;
 let isSyncing = false;
 
-export function getDatabase(): Database.Database {
+export function getDatabase(): any {
   if (!dbInstance) {
-    dbInstance = new Database(DB_PATH);
-    dbInstance.pragma("journal_mode = WAL");
-    dbInstance.pragma("synchronous = NORMAL");
-    initSchema(dbInstance);
+    if (Database) {
+      try {
+        dbInstance = new Database(DB_PATH);
+        dbInstance.pragma("journal_mode = WAL");
+        dbInstance.pragma("synchronous = NORMAL");
+        initSchema(dbInstance);
+        console.log("[Database Init] successfully loaded better-sqlite3 backend at:", DB_PATH);
+      } catch (err: any) {
+        console.warn("[Database Init] better-sqlite3 database initialization failed, falling back to clean pure JS layer. Details:", err.message);
+        dbInstance = new FallbackDatabase(DB_PATH);
+      }
+    } else {
+      dbInstance = new FallbackDatabase(DB_PATH);
+    }
   }
   return dbInstance;
 }
 
-function initSchema(db: Database.Database) {
+function initSchema(db: any) {
   // Products table
   db.prepare(`
     CREATE TABLE IF NOT EXISTS products (
